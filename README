@@ -1,0 +1,4 @@
+# MergeGate
+
+A DevSecOps CI/CD security gate that scans project dependencies for
+known vulnerabilities and license compliance issues before code is merged.
