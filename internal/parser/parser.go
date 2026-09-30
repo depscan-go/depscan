@@ -4,7 +4,7 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/D-source1602/depscan/internal/model"
+	"github.com/depscan-go/depscan/internal/model"
 )
 
 type Parser interface {

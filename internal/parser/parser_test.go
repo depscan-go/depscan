@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/D-source1602/depscan/internal/parser"
+	"github.com/depscan-go/depscan/internal/parser"
 )
 
 func TestGoModParser(t *testing.T) {

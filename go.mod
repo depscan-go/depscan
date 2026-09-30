@@ -1,4 +1,4 @@
-module github.com/D-source1602/depscan
+module github.com/depscan-go/depscan
 
 go 1.26.3
 
