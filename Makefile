@@ -1,4 +1,4 @@
-.PHONY: build test lint run-cli
+.PHONY: build build-server test cover lint run-cli run-server
 
 
 build:
@@ -7,6 +7,7 @@ build:
 
 build-server:
 	go build -o bin/server ./cmd/server
+
 
 test:
 	go test -race ./...
@@ -22,4 +23,7 @@ lint:
 
 
 run-cli:
-	go run ./cmd/depscan scan --path=.
+	go run ./cmd/depscan --path=./testdata --policy=./policy.yaml
+
+run-server:
+	go run ./cmd/server --policy=./policy.yaml

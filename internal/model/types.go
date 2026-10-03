@@ -29,4 +29,5 @@ type ScanResult struct {
 	Deps       []Dependency
 	Findings   []Finding
 	Violations []Violation
+	Warnings   []Violation 
 }
