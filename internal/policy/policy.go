@@ -8,25 +8,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-
 type Policy struct {
-	BlockSeverities     []string    `yaml:"block_severities"`
-	WarnSeverities      []string    `yaml:"warn_severities"`
-	BlockUnknown        bool        `yaml:"block_unknown_severity"`
-	CheckTransitive     bool        `yaml:"check_transitive"`
-	DeniedLicenses      []string    `yaml:"denied_licenses"`
-	Exceptions          []Exception `yaml:"exceptions"`
-	FailFast            bool        `yaml:"fail_fast"`
-	MaxViolations       int         `yaml:"max_violations"`
+	BlockSeverities []string    `yaml:"block_severities"`
+	WarnSeverities  []string    `yaml:"warn_severities"`
+	BlockUnknown    bool        `yaml:"block_unknown_severity"`
+	CheckTransitive bool        `yaml:"check_transitive"`
+	DeniedLicenses  []string    `yaml:"denied_licenses"`
+	Exceptions      []Exception `yaml:"exceptions"`
+	FailFast        bool        `yaml:"fail_fast"`
+	MaxViolations   int         `yaml:"max_violations"`
 }
-
 
 type Exception struct {
 	ID      string `yaml:"id"`
 	Reason  string `yaml:"reason"`
-	Expires string `yaml:"expires"` 
+	Expires string `yaml:"expires"`
 }
-
 
 func Load(path string) (*Policy, error) {
 	data, err := os.ReadFile(path)
@@ -54,7 +51,6 @@ func (p *Policy) IsBlocked(severity string) bool {
 	return false
 }
 
-
 func (p *Policy) IsWarned(severity string) bool {
 	for _, s := range p.WarnSeverities {
 		if s == severity {
@@ -63,7 +59,6 @@ func (p *Policy) IsWarned(severity string) bool {
 	}
 	return false
 }
-
 
 func (p *Policy) IsLicenseDenied(license string) bool {
 	for _, l := range p.DeniedLicenses {
@@ -83,7 +78,7 @@ func (p *Policy) IsException(vulnID string) (bool, string) {
 		if e.Expires != "" {
 			expiry, err := time.Parse("2006-01-02", e.Expires)
 			if err == nil && time.Now().After(expiry) {
-				
+
 				return false, ""
 			}
 		}

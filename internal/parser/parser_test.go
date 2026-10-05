@@ -19,11 +19,9 @@ func TestGoModParser(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	
 	if len(deps) != 2 {
 		t.Fatalf("expected 2 deps, got %d", len(deps))
 	}
-
 
 	tests := []struct {
 		name      string

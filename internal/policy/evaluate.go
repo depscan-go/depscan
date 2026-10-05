@@ -6,15 +6,13 @@ import (
 	"github.com/depscan-go/depscan/internal/model"
 )
 
-
 func Evaluate(p *Policy, findings []model.Finding, deps []model.Dependency) (violations []model.Violation, warnings []model.Violation) {
 	for _, f := range findings {
-		
+
 		if !p.CheckTransitive && !f.Dep.Direct {
 			continue
 		}
 
-	
 		if excepted, reason := p.IsException(f.VulnID); excepted {
 			fmt.Printf("  [skip] %s — exception: %s\n", f.VulnID, reason)
 			continue
@@ -42,13 +40,11 @@ func Evaluate(p *Policy, findings []model.Finding, deps []model.Dependency) (vio
 			warnings = append(warnings, v)
 		}
 
-		
 		if p.MaxViolations > 0 && len(violations) >= p.MaxViolations {
 			return violations, warnings
 		}
 	}
 
-	
 	for _, dep := range deps {
 		if dep.License == "" {
 			continue

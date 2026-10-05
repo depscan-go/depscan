@@ -1,4 +1,3 @@
-
 package parser
 
 import (
@@ -11,9 +10,7 @@ import (
 	"github.com/depscan-go/depscan/internal/model"
 )
 
-
 type GoModParser struct{}
-
 
 func (p *GoModParser) Match(filename string) bool {
 	return filename == "go.mod"
@@ -24,7 +21,7 @@ func (p *GoModParser) Parse(r io.Reader) ([]model.Dependency, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading go.mod: %w", err)
 	}
-	
+
 	f, err := modfile.Parse("go.mod", data, nil)
 	if err != nil {
 		return nil, fmt.Errorf("parsing go.mod: %w", err)
@@ -42,7 +39,7 @@ func (p *GoModParser) Parse(r io.Reader) ([]model.Dependency, error) {
 		version := strings.TrimPrefix(req.Mod.Version, "v")
 
 		deps = append(deps, model.Dependency{
-			Ecosystem: "Go", 
+			Ecosystem: "Go",
 			Name:      req.Mod.Path,
 			Version:   version,
 			Direct:    !req.Indirect,

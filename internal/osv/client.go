@@ -13,11 +13,8 @@ import (
 )
 
 const (
-	
-	batchSize = 100 
+	batchSize = 100
 )
-
-
 
 func NewWithBaseURL(baseURL string) *Client {
 	c := New()
@@ -28,14 +25,14 @@ func NewWithBaseURL(baseURL string) *Client {
 type Client struct {
 	http    *http.Client
 	workers int
-	baseURL string 
+	baseURL string
 }
 
 func New() *Client {
 	return &Client{
 		http:    &http.Client{Timeout: 30 * time.Second},
 		workers: 8,
-		baseURL: "https://api.osv.dev", 
+		baseURL: "https://api.osv.dev",
 	}
 }
 
@@ -53,7 +50,6 @@ type osvPackage struct {
 	Ecosystem string `json:"ecosystem"`
 }
 
-
 type batchResponse struct {
 	Results []struct {
 		Vulns []struct {
@@ -62,12 +58,10 @@ type batchResponse struct {
 	} `json:"results"`
 }
 
-
-
 type vulnDetail struct {
-	ID       string `json:"id"`
+	ID       string   `json:"id"`
 	Aliases  []string `json:"aliases"`
-	Summary  string `json:"summary"`
+	Summary  string   `json:"summary"`
 	Severity []struct {
 		Type  string `json:"type"`
 		Score string `json:"score"`
@@ -84,12 +78,10 @@ type vulnDetail struct {
 	} `json:"affected"`
 }
 
-
 func (c *Client) QueryBatch(ctx context.Context, deps []model.Dependency) ([]model.Finding, error) {
 	if len(deps) == 0 {
 		return nil, nil
 	}
-
 
 	depVulns, err := c.batchQuery(ctx, deps)
 	if err != nil {
@@ -108,29 +100,26 @@ func (c *Client) QueryBatch(ctx context.Context, deps []model.Dependency) ([]mod
 	}
 
 	if len(uniqueIDs) == 0 {
-		return nil, nil 
+		return nil, nil
 	}
 
-	
 	details, err := fetchDetails(ctx, c.http, uniqueIDs, c.workers, c.baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("fetching vuln details: %w", err)
 	}
 
-	
 	detailMap := make(map[string]*vulnDetail, len(details))
 	for _, d := range details {
-		d := d 
+		d := d
 		detailMap[d.ID] = d
 	}
 
-	
 	var findings []model.Finding
 	for i, dep := range deps {
 		for _, vulnID := range depVulns[i] {
 			detail, ok := detailMap[vulnID]
 			if !ok {
-				continue 
+				continue
 			}
 			findings = append(findings, model.Finding{
 				Dep:          dep,
@@ -149,7 +138,6 @@ func (c *Client) QueryBatch(ctx context.Context, deps []model.Dependency) ([]mod
 func (c *Client) batchQuery(ctx context.Context, deps []model.Dependency) ([][]string, error) {
 	result := make([][]string, len(deps))
 
-	
 	for start := 0; start < len(deps); start += batchSize {
 		end := start + batchSize
 		if end > len(deps) {
@@ -157,7 +145,6 @@ func (c *Client) batchQuery(ctx context.Context, deps []model.Dependency) ([][]s
 		}
 		chunk := deps[start:end]
 
-	
 		queries := make([]osvQuery, len(chunk))
 		for i, dep := range chunk {
 			queries[i] = osvQuery{
@@ -200,7 +187,6 @@ func (c *Client) batchQuery(ctx context.Context, deps []model.Dependency) ([][]s
 			return nil, fmt.Errorf("decoding batch response: %w", err)
 		}
 
-		
 		for i, res := range br.Results {
 			var ids []string
 			for _, v := range res.Vulns {
@@ -213,15 +199,12 @@ func (c *Client) batchQuery(ctx context.Context, deps []model.Dependency) ([][]s
 	return result, nil
 }
 
-
-
 func extractSeverity(d *vulnDetail) string {
 	if d.DatabaseSpecific.Severity != "" {
 		return d.DatabaseSpecific.Severity
 	}
 	return "UNKNOWN"
 }
-
 
 func extractFixedVersion(d *vulnDetail) string {
 	for _, aff := range d.Affected {
@@ -233,6 +216,6 @@ func extractFixedVersion(d *vulnDetail) string {
 			}
 		}
 	}
-	return "" 
+	return ""
 
 }

@@ -1,4 +1,4 @@
-package parser 
+package parser
 
 import (
 	"io"
@@ -14,7 +14,7 @@ type Parser interface {
 
 var registry = []Parser{
 	&GoModParser{},
-	// &NpmParser{},  
+	// &NpmParser{},
 }
 
 func ParseFile(filename string, r io.Reader) ([]model.Dependency, error) {
@@ -24,5 +24,5 @@ func ParseFile(filename string, r io.Reader) ([]model.Dependency, error) {
 			return p.Parse(r)
 		}
 	}
-	return nil, nil 
+	return nil, nil
 }

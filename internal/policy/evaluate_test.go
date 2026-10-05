@@ -7,7 +7,6 @@ import (
 	"github.com/depscan-go/depscan/internal/policy"
 )
 
-
 func finding(name, severity string, direct bool) model.Finding {
 	return model.Finding{
 		Dep:          model.Dependency{Name: name, Version: "1.0.0", Direct: direct},
@@ -17,7 +16,6 @@ func finding(name, severity string, direct bool) model.Finding {
 		FixedVersion: "2.0.0",
 	}
 }
-
 
 func TestEvaluate_BlocksCriticalAndHigh(t *testing.T) {
 	p := &policy.Policy{
@@ -42,8 +40,6 @@ func TestEvaluate_BlocksCriticalAndHigh(t *testing.T) {
 		t.Errorf("expected 1 warning (MODERATE), got %d", len(warnings))
 	}
 }
-
-
 
 func TestEvaluate_BlockUnknown_False(t *testing.T) {
 	p := &policy.Policy{
@@ -79,8 +75,6 @@ func TestEvaluate_BlockUnknown_True(t *testing.T) {
 	}
 }
 
-
-
 func TestEvaluate_SkipsTransitiveWhenDisabled(t *testing.T) {
 	p := &policy.Policy{
 		BlockSeverities: []string{"CRITICAL"},
@@ -88,8 +82,8 @@ func TestEvaluate_SkipsTransitiveWhenDisabled(t *testing.T) {
 	}
 
 	findings := []model.Finding{
-		finding("transitive-pkg", "CRITICAL", false), 
-		finding("direct-pkg", "CRITICAL", true),      
+		finding("transitive-pkg", "CRITICAL", false),
+		finding("direct-pkg", "CRITICAL", true),
 	}
 
 	violations, _ := policy.Evaluate(p, findings, nil)
@@ -101,7 +95,6 @@ func TestEvaluate_SkipsTransitiveWhenDisabled(t *testing.T) {
 		t.Errorf("wrong dep blocked: %s", violations[0].Dep.Name)
 	}
 }
-
 
 func TestEvaluate_ExceptionSkipsVuln(t *testing.T) {
 	p := &policy.Policy{
@@ -148,7 +141,6 @@ func TestEvaluate_ExpiredExceptionStillBlocks(t *testing.T) {
 	}
 }
 
-
 func TestEvaluate_FailFastStopsAfterFirst(t *testing.T) {
 	p := &policy.Policy{
 		BlockSeverities: []string{"CRITICAL"},
@@ -167,7 +159,6 @@ func TestEvaluate_FailFastStopsAfterFirst(t *testing.T) {
 		t.Errorf("expected 1 violation (fail_fast), got %d", len(violations))
 	}
 }
-
 
 func TestEvaluate_MaxViolationsCap(t *testing.T) {
 	p := &policy.Policy{
@@ -188,8 +179,6 @@ func TestEvaluate_MaxViolationsCap(t *testing.T) {
 	}
 }
 
-
-
 func TestEvaluate_DeniedLicense(t *testing.T) {
 	p := &policy.Policy{
 		CheckTransitive: true,
@@ -209,7 +198,6 @@ func TestEvaluate_DeniedLicense(t *testing.T) {
 		t.Errorf("wrong dep in license violation: %s", violations[0].Dep.Name)
 	}
 }
-
 
 func TestEvaluate_NoFindings(t *testing.T) {
 	p := &policy.Policy{

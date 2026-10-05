@@ -11,12 +11,10 @@ import (
 	"github.com/depscan-go/depscan/internal/osv"
 )
 
-
 func TestQueryBatch_FindsVulnerability(t *testing.T) {
-	
+
 	mux := http.NewServeMux()
 
-	
 	mux.HandleFunc("/v1/querybatch", func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]interface{}{
 			"results": []map[string]interface{}{
@@ -30,7 +28,6 @@ func TestQueryBatch_FindsVulnerability(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	})
-
 
 	mux.HandleFunc("/v1/vulns/GHSA-42xw-2xvc-qx8m", func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]interface{}{
@@ -56,10 +53,8 @@ func TestQueryBatch_FindsVulnerability(t *testing.T) {
 		json.NewEncoder(w).Encode(resp)
 	})
 
-	
 	server := httptest.NewServer(mux)
 	defer server.Close()
-
 
 	client := osv.NewWithBaseURL(server.URL)
 
@@ -95,7 +90,6 @@ func TestQueryBatch_FindsVulnerability(t *testing.T) {
 		t.Errorf("wrong dep name: got %q", f.Dep.Name)
 	}
 }
-
 
 func TestQueryBatch_NoDeps(t *testing.T) {
 	client := osv.NewWithBaseURL("http://should-not-be-called")
