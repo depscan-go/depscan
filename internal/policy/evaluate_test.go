@@ -210,3 +210,35 @@ func TestEvaluate_NoFindings(t *testing.T) {
 		t.Errorf("expected clean scan, got %d violations %d warnings", len(violations), len(warnings))
 	}
 }
+
+func TestEvaluate_ExceptionMatchesAlias(t *testing.T) {
+	p := &policy.Policy{
+		BlockSeverities: []string{"HIGH"},
+		CheckTransitive: true,
+		Exceptions: []policy.Exception{
+			{ID: "CVE-2020-28168", Reason: "SSRF path not reachable"},
+		},
+	}
+	f := finding("axios", "HIGH", true)
+	f.VulnID = "GHSA-42xw-2xvc-qx8m"
+	f.Aliases = []string{"CVE-2020-28168"}
+
+	violations, _ := policy.Evaluate(p, []model.Finding{f}, nil)
+	if len(violations) != 0 {
+		t.Errorf("exception on the CVE alias should cover the GHSA ID, got %d violations", len(violations))
+	}
+}
+
+func TestValidate_RejectsExceptionWithoutReason(t *testing.T) {
+	p := &policy.Policy{Exceptions: []policy.Exception{{ID: "GHSA-x"}}}
+	if err := p.Validate(); err == nil {
+		t.Fatal("expected an error for an exception with no reason")
+	}
+}
+
+func TestValidate_RejectsBadExpiryDate(t *testing.T) {
+	p := &policy.Policy{Exceptions: []policy.Exception{{ID: "GHSA-x", Reason: "r", Expires: "31-12-2026"}}}
+	if err := p.Validate(); err == nil {
+		t.Fatal("expected an error for a non YYYY-MM-DD date")
+	}
+}

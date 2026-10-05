@@ -13,7 +13,7 @@ func Evaluate(p *Policy, findings []model.Finding, deps []model.Dependency) (vio
 			continue
 		}
 
-		if excepted, reason := p.IsException(f.VulnID); excepted {
+		if excepted, reason := p.IsException(f); excepted {
 			fmt.Printf("  [skip] %s — exception: %s\n", f.VulnID, reason)
 			continue
 		}

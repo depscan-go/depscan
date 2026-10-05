@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/depscan-go/depscan/internal/model"
 )
 
 type Policy struct {
@@ -36,7 +38,28 @@ func Load(path string) (*Policy, error) {
 		return nil, fmt.Errorf("parsing policy file: %w", err)
 	}
 
+	if err := p.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid policy file: %w", err)
+	}
+
 	return &p, nil
+}
+
+func (p *Policy) Validate() error {
+	for i, e := range p.Exceptions {
+		if e.ID == "" {
+			return fmt.Errorf("exceptions[%d]: id is required", i)
+		}
+		if e.Reason == "" {
+			return fmt.Errorf("exceptions[%d] (%s): reason is required", i, e.ID)
+		}
+		if e.Expires != "" {
+			if _, err := time.Parse("2006-01-02", e.Expires); err != nil {
+				return fmt.Errorf("exceptions[%d] (%s): expires must be YYYY-MM-DD: %w", i, e.ID, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (p *Policy) IsBlocked(severity string) bool {
@@ -69,20 +92,33 @@ func (p *Policy) IsLicenseDenied(license string) bool {
 	return false
 }
 
-func (p *Policy) IsException(vulnID string) (bool, string) {
+func (p *Policy) IsException(f model.Finding) (bool, string) {
+	return p.isExceptionAt(f, time.Now())
+}
+
+func (p *Policy) isExceptionAt(f model.Finding, now time.Time) (bool, string) {
+	ids := append([]string{f.VulnID}, f.Aliases...)
+
 	for _, e := range p.Exceptions {
-		if e.ID != vulnID {
+		if !containsString(ids, e.ID) {
 			continue
 		}
-
 		if e.Expires != "" {
 			expiry, err := time.Parse("2006-01-02", e.Expires)
-			if err == nil && time.Now().After(expiry) {
-
-				return false, ""
+			if err != nil || !now.Before(expiry.Add(24*time.Hour)) {
+				continue
 			}
 		}
 		return true, e.Reason
 	}
 	return false, ""
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
