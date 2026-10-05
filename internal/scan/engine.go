@@ -44,7 +44,7 @@ func (e *Engine) Run(ctx context.Context, path string) (*model.ScanResult, error
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }() // opened read-only
 
 		parsed, err := parser.ParseFile(info.Name(), f)
 		if err != nil {

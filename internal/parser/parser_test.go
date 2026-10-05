@@ -13,7 +13,7 @@ func TestGoModParser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("opening testdata: %v", err)
 	}
-	defer f.Close()
+	t.Cleanup(func() { _ = f.Close() })
 
 	deps, err := parser.ParseFile("go.mod", f)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestNpmParser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("opening testdata: %v", err)
 	}
-	defer f.Close()
+	t.Cleanup(func() { _ = f.Close() })
 
 	deps, err := parser.ParseFile("package-lock.json", f)
 	if err != nil {
