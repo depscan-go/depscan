@@ -67,9 +67,13 @@ type vulnDetail struct {
 		Score string `json:"score"`
 	} `json:"severity"`
 	DatabaseSpecific struct {
-		Severity string `json:"severity"` // "CRITICAL", "HIGH", "MEDIUM", "LOW"
+		Severity string `json:"severity"`
 	} `json:"database_specific"`
 	Affected []struct {
+		Package struct {
+			Name      string `json:"name"`
+			Ecosystem string `json:"ecosystem"`
+		} `json:"package"`
 		Ranges []struct {
 			Events []struct {
 				Fixed string `json:"fixed"`
@@ -127,7 +131,7 @@ func (c *Client) QueryBatch(ctx context.Context, deps []model.Dependency) ([]mod
 				Aliases:      detail.Aliases,
 				Severity:     extractSeverity(detail),
 				Summary:      detail.Summary,
-				FixedVersion: extractFixedVersion(detail),
+				FixedVersion: extractFixedVersion(detail, dep), // CHANGED (2): pass dep
 			})
 		}
 	}
@@ -171,20 +175,24 @@ func (c *Client) batchQuery(ctx context.Context, deps []model.Dependency) ([][]s
 		if err != nil {
 			return nil, fmt.Errorf("POST querybatch: %w", err)
 		}
-		defer resp.Body.Close()
+
+		data, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close() // read-only body: a close error changes nothing
+		if err != nil {
+			return nil, err
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("OSV querybatch returned %d", resp.StatusCode)
 		}
 
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-
 		var br batchResponse
 		if err := json.Unmarshal(data, &br); err != nil {
 			return nil, fmt.Errorf("decoding batch response: %w", err)
+		}
+
+		if len(br.Results) != len(chunk) {
+			return nil, fmt.Errorf("OSV returned %d results for %d queries", len(br.Results), len(chunk))
 		}
 
 		for i, res := range br.Results {
@@ -206,8 +214,11 @@ func extractSeverity(d *vulnDetail) string {
 	return "UNKNOWN"
 }
 
-func extractFixedVersion(d *vulnDetail) string {
+func extractFixedVersion(d *vulnDetail, dep model.Dependency) string {
 	for _, aff := range d.Affected {
+		if aff.Package.Name != dep.Name || aff.Package.Ecosystem != dep.Ecosystem {
+			continue
+		}
 		for _, r := range aff.Ranges {
 			for _, e := range r.Events {
 				if e.Fixed != "" {
@@ -217,5 +228,4 @@ func extractFixedVersion(d *vulnDetail) string {
 		}
 	}
 	return ""
-
 }
