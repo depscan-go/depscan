@@ -1,0 +1,19 @@
+# Build output
+bin/
+/depscan
+/server
+
+# Test and coverage output
+coverage.out
+*.test
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets: never commit these
+.env
+*.pem
+*-keypair.json
