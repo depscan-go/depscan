@@ -14,7 +14,7 @@ type Parser interface {
 
 var registry = []Parser{
 	&GoModParser{},
-	// &NpmParser{},
+	&NpmParser{},
 }
 
 func ParseFile(filename string, r io.Reader) ([]model.Dependency, error) {

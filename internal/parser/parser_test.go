@@ -2,6 +2,7 @@ package parser_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/depscan-go/depscan/internal/parser"
@@ -47,5 +48,54 @@ func TestGoModParser(t *testing.T) {
 		if d.Direct != tt.direct {
 			t.Errorf("dep[%d].Direct: want %v got %v", i, tt.direct, d.Direct)
 		}
+	}
+}
+
+func TestNpmParser(t *testing.T) {
+	f, err := os.Open("../../testdata/package-lock.json")
+	if err != nil {
+		t.Fatalf("opening testdata: %v", err)
+	}
+	defer f.Close()
+
+	deps, err := parser.ParseFile("package-lock.json", f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []struct {
+		name    string
+		version string
+		direct  bool
+	}{
+		{"@types/node", "20.0.0", true},       // devDependency of root
+		{"axios", "0.21.1", true},             // dependency of root
+		{"follow-redirects", "1.14.7", false}, // pulled in by axios
+	}
+
+	if len(deps) != len(want) {
+		t.Fatalf("expected %d deps, got %d: %+v", len(want), len(deps), deps)
+	}
+	for i, w := range want {
+		d := deps[i]
+		if d.Name != w.name || d.Version != w.version || d.Direct != w.direct || d.Ecosystem != "npm" {
+			t.Errorf("dep[%d] = %+v, want name=%s version=%s direct=%v ecosystem=npm",
+				i, d, w.name, w.version, w.direct)
+		}
+	}
+}
+
+func TestNpmParser_RejectsLockfileV1(t *testing.T) {
+	v1 := `{"lockfileVersion": 1, "dependencies": {"axios": {"version": "0.21.1"}}}`
+	_, err := parser.ParseFile("package-lock.json", strings.NewReader(v1))
+	if err == nil {
+		t.Fatal("expected an error for lockfileVersion 1")
+	}
+}
+
+func TestNpmParser_MalformedJSON(t *testing.T) {
+	_, err := parser.ParseFile("package-lock.json", strings.NewReader("{not json"))
+	if err == nil {
+		t.Fatal("expected an error for malformed JSON")
 	}
 }
