@@ -1,0 +1,6 @@
+# Copy to backend.hcl (gitignored), fill in the storage account name, then:
+#   terraform init -backend-config=backend.hcl
+resource_group_name  = "rg-depscan-tfstate"
+storage_account_name = "<depscantfNNNNN>"
+container_name       = "tfstate"
+key                  = "depscan.tfstate"

@@ -1,0 +1,10 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+backend.hcl
+crash.log
+crash.*.log
+# Saved plans contain secret values in plaintext
+tfplan
+*.tfplan

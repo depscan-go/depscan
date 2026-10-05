@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+subscription_id = "<Azure for Students subscription id>"
+location        = "<a region allowed by sys.regionrestriction>"
+
+# Flip to true after: az keyvault secret set --vault-name <kv> -n database-url --value '<neon url>'
+wire_database_url = false
