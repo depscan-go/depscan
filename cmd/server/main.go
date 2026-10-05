@@ -18,6 +18,8 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "address to listen on")
+	// CHANGED (1): the only folder the API is allowed to scan
+	scanRoot := flag.String("scan-root", ".", "only folders inside this directory can be scanned via the API")
 	policyFile := flag.String("policy", "policy.yaml", "path to policy.yaml")
 	flag.Parse()
 
@@ -28,7 +30,12 @@ func main() {
 	}
 
 	engine := scan.New(p)
-	handler := api.New(engine)
+	// CHANGED (2): api.New now takes the scan root and can fail (e.g. folder doesn't exist)
+	handler, err := api.New(engine, *scanRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid -scan-root: %v\n", err)
+		os.Exit(1)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", handler.Dashboard)
@@ -61,6 +68,9 @@ func main() {
 	log.Println("shutting down...")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	server.Shutdown(ctx)
+	// CHANGED (3): don't ignore the error (golangci-lint errcheck flags this)
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("graceful shutdown failed: %v", err)
+	}
 	log.Println("done")
 }

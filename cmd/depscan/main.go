@@ -10,6 +10,12 @@ import (
 	"github.com/depscan-go/depscan/internal/scan"
 )
 
+const (
+	exitClean     = 0
+	exitViolation = 1
+	exitToolError = 2
+)
+
 func main() {
 	path := flag.String("path", ".", "path to the repository to scan")
 	policyFile := flag.String("policy", "policy.yaml", "path to policy.yaml")
@@ -21,14 +27,14 @@ func main() {
 	p, err := policy.Load(*policyFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error loading policy: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitToolError)
 	}
 
 	engine := scan.New(p)
 	result, err := engine.Run(context.Background(), *path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "scan error: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitToolError)
 	}
 
 	fmt.Printf("Dependencies: %d\n", len(result.Deps))
@@ -46,7 +52,7 @@ func main() {
 
 	if len(result.Violations) == 0 {
 		fmt.Println("✅ No policy violations. Scan passed.")
-		return
+		os.Exit(exitClean)
 	}
 
 	fmt.Printf("❌ %d policy violation(s) — scan failed:\n\n", len(result.Violations))
@@ -56,5 +62,5 @@ func main() {
 	}
 
 	fmt.Printf("Result: %d violation(s)\n", len(result.Violations))
-	os.Exit(1)
+	os.Exit(exitViolation)
 }

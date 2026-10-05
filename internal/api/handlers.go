@@ -4,7 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,16 +24,42 @@ type ScanRecord struct {
 }
 
 type Handler struct {
-	engine *scan.Engine
-	mu     sync.RWMutex
-	scans  map[string]*ScanRecord
+	engine   *scan.Engine
+	scanRoot string
+	mu       sync.RWMutex
+	scans    map[string]*ScanRecord
 }
 
-func New(engine *scan.Engine) *Handler {
-	return &Handler{
-		engine: engine,
-		scans:  make(map[string]*ScanRecord),
+func New(engine *scan.Engine, scanRoot string) (*Handler, error) {
+	root, err := filepath.Abs(scanRoot)
+	if err != nil {
+		return nil, err
 	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	return &Handler{
+		engine:   engine,
+		scanRoot: root,
+		scans:    make(map[string]*ScanRecord),
+	}, nil
+}
+
+var errOutsideRoot = errors.New("path must be inside the scan root")
+
+func (h *Handler) resolveScanPath(p string) (string, error) {
+	if filepath.IsAbs(p) {
+		return "", errOutsideRoot
+	}
+	target, err := filepath.EvalSymlinks(filepath.Join(h.scanRoot, p))
+	if err != nil {
+		return "", err
+	}
+	if target != h.scanRoot && !strings.HasPrefix(target, h.scanRoot+string(filepath.Separator)) {
+		return "", errOutsideRoot
+	}
+	return target, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -37,7 +67,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	enc.Encode(v)
+	if err := enc.Encode(v); err != nil {
+
+		log.Printf("writing JSON response: %v", err)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -46,7 +79,10 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 func newID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }
 
@@ -72,7 +108,13 @@ func (h *Handler) CreateScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.engine.Run(r.Context(), req.Path)
+	target, err := h.resolveScanPath(req.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid path: "+err.Error())
+		return
+	}
+
+	result, err := h.engine.Run(r.Context(), target)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -98,7 +140,7 @@ func (h *Handler) CreateScan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetScan(w http.ResponseWriter, r *http.Request) {
-	// Extract {id} from the URL path manually (no chi dependency in handler)
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing scan id")
@@ -532,5 +574,7 @@ func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
 </body>
 </html>`
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		log.Printf("writing dashboard: %v", err)
+	}
 }

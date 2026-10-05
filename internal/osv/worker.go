@@ -60,7 +60,7 @@ func fetchOne(ctx context.Context, client *http.Client, id string, baseURL strin
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // CHANGED: read-only body, a close error changes nothing
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("vuln %s not found", id)

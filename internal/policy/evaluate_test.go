@@ -7,7 +7,6 @@ import (
 	"github.com/depscan-go/depscan/internal/policy"
 )
 
-
 func finding(name, severity string, direct bool) model.Finding {
 	return model.Finding{
 		Dep:          model.Dependency{Name: name, Version: "1.0.0", Direct: direct},
@@ -17,7 +16,6 @@ func finding(name, severity string, direct bool) model.Finding {
 		FixedVersion: "2.0.0",
 	}
 }
-
 
 func TestEvaluate_BlocksCriticalAndHigh(t *testing.T) {
 	p := &policy.Policy{
@@ -42,8 +40,6 @@ func TestEvaluate_BlocksCriticalAndHigh(t *testing.T) {
 		t.Errorf("expected 1 warning (MODERATE), got %d", len(warnings))
 	}
 }
-
-
 
 func TestEvaluate_BlockUnknown_False(t *testing.T) {
 	p := &policy.Policy{
@@ -79,8 +75,6 @@ func TestEvaluate_BlockUnknown_True(t *testing.T) {
 	}
 }
 
-
-
 func TestEvaluate_SkipsTransitiveWhenDisabled(t *testing.T) {
 	p := &policy.Policy{
 		BlockSeverities: []string{"CRITICAL"},
@@ -88,8 +82,8 @@ func TestEvaluate_SkipsTransitiveWhenDisabled(t *testing.T) {
 	}
 
 	findings := []model.Finding{
-		finding("transitive-pkg", "CRITICAL", false), 
-		finding("direct-pkg", "CRITICAL", true),      
+		finding("transitive-pkg", "CRITICAL", false),
+		finding("direct-pkg", "CRITICAL", true),
 	}
 
 	violations, _ := policy.Evaluate(p, findings, nil)
@@ -101,7 +95,6 @@ func TestEvaluate_SkipsTransitiveWhenDisabled(t *testing.T) {
 		t.Errorf("wrong dep blocked: %s", violations[0].Dep.Name)
 	}
 }
-
 
 func TestEvaluate_ExceptionSkipsVuln(t *testing.T) {
 	p := &policy.Policy{
@@ -148,7 +141,6 @@ func TestEvaluate_ExpiredExceptionStillBlocks(t *testing.T) {
 	}
 }
 
-
 func TestEvaluate_FailFastStopsAfterFirst(t *testing.T) {
 	p := &policy.Policy{
 		BlockSeverities: []string{"CRITICAL"},
@@ -168,7 +160,6 @@ func TestEvaluate_FailFastStopsAfterFirst(t *testing.T) {
 	}
 }
 
-
 func TestEvaluate_MaxViolationsCap(t *testing.T) {
 	p := &policy.Policy{
 		BlockSeverities: []string{"CRITICAL"},
@@ -187,8 +178,6 @@ func TestEvaluate_MaxViolationsCap(t *testing.T) {
 		t.Errorf("expected 2 violations (max_violations cap), got %d", len(violations))
 	}
 }
-
-
 
 func TestEvaluate_DeniedLicense(t *testing.T) {
 	p := &policy.Policy{
@@ -210,7 +199,6 @@ func TestEvaluate_DeniedLicense(t *testing.T) {
 	}
 }
 
-
 func TestEvaluate_NoFindings(t *testing.T) {
 	p := &policy.Policy{
 		BlockSeverities: []string{"CRITICAL", "HIGH"},
@@ -220,5 +208,37 @@ func TestEvaluate_NoFindings(t *testing.T) {
 	violations, warnings := policy.Evaluate(p, nil, nil)
 	if len(violations) != 0 || len(warnings) != 0 {
 		t.Errorf("expected clean scan, got %d violations %d warnings", len(violations), len(warnings))
+	}
+}
+
+func TestEvaluate_ExceptionMatchesAlias(t *testing.T) {
+	p := &policy.Policy{
+		BlockSeverities: []string{"HIGH"},
+		CheckTransitive: true,
+		Exceptions: []policy.Exception{
+			{ID: "CVE-2020-28168", Reason: "SSRF path not reachable"},
+		},
+	}
+	f := finding("axios", "HIGH", true)
+	f.VulnID = "GHSA-42xw-2xvc-qx8m"
+	f.Aliases = []string{"CVE-2020-28168"}
+
+	violations, _ := policy.Evaluate(p, []model.Finding{f}, nil)
+	if len(violations) != 0 {
+		t.Errorf("exception on the CVE alias should cover the GHSA ID, got %d violations", len(violations))
+	}
+}
+
+func TestValidate_RejectsExceptionWithoutReason(t *testing.T) {
+	p := &policy.Policy{Exceptions: []policy.Exception{{ID: "GHSA-x"}}}
+	if err := p.Validate(); err == nil {
+		t.Fatal("expected an error for an exception with no reason")
+	}
+}
+
+func TestValidate_RejectsBadExpiryDate(t *testing.T) {
+	p := &policy.Policy{Exceptions: []policy.Exception{{ID: "GHSA-x", Reason: "r", Expires: "31-12-2026"}}}
+	if err := p.Validate(); err == nil {
+		t.Fatal("expected an error for a non YYYY-MM-DD date")
 	}
 }
