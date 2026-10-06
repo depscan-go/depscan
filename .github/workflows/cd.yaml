@@ -1,0 +1,99 @@
+name: CD
+
+# Deploy every push to main to the Azure Container App (infra/terraform).
+on:
+  push:
+    branches: [main]
+    # Terraform is applied by hand, and docs don't change the image
+    paths-ignore:
+      - "infra/**"
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write # push the image to GHCR
+  id-token: write # OIDC token that azure/login exchanges for an Azure login
+
+# Never cancel a deploy halfway; queue the next one instead
+concurrency:
+  group: cd
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/depscan-go/depscan
+  RESOURCE_GROUP: rg-depscan
+  CONTAINER_APP: depscan-server
+
+jobs:
+  deploy:
+    # No `environment:` here: Azure trusts the OIDC subject
+    # repo:depscan-go/depscan:ref:refs/heads/main, and an environment would change it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tags: sha-<commit> (what gets deployed) and latest.
+      # The labels link the GHCR package to this repo.
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64 # the only platform Container Apps express runs
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        run: |
+          az containerapp update \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$CONTAINER_APP" \
+            --image "$IMAGE:sha-$GITHUB_SHA" \
+            --output none
+
+      # Express reuses one revision name and never sets latestReadyRevisionName, so check
+      # that the live revision runs this commit's image, then that the app answers.
+      # Gap: if the new container fails to start, Express may keep serving the old one, and
+      # /healthz would still pass. Closing it needs /healthz to report the build SHA.
+      - name: Smoke test
+        run: |
+          want="$IMAGE:sha-$GITHUB_SHA"
+          got=$(az containerapp revision list -g "$RESOURCE_GROUP" -n "$CONTAINER_APP" \
+            --query "[?properties.active].properties.template.containers[0].image | [0]" -o tsv)
+          echo "active revision image: $got"
+          [ "$got" = "$want" ] || { echo "expected $want"; exit 1; }
+
+          fqdn=$(az containerapp show -g "$RESOURCE_GROUP" -n "$CONTAINER_APP" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://$fqdn/healthz" || true)
+            echo "attempt $i: /healthz -> $code"
+            [ "$code" = 200 ] && exit 0
+            sleep 10
+          done
+          exit 1
