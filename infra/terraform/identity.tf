@@ -23,6 +23,15 @@ resource "azurerm_federated_identity_credential" "gha_main" {
   audience = ["api://AzureADTokenExchange"]
 }
 
+# `az login` and `az containerapp update` read the subscription and environment too. Reader can't
+# see secret values: Key Vault data and app secrets need separate permissions.
+resource "azurerm_role_assignment" "gha_rg_reader" {
+  scope                = azurerm_resource_group.main.id
+  role_definition_name = "Reader"
+  principal_id         = azurerm_user_assigned_identity.gha.principal_id
+  principal_type       = "ServicePrincipal"
+}
+
 # CI only rolls out new images, so it gets write access to the container app and nothing wider.
 resource "azurerm_role_assignment" "gha_app_contributor" {
   scope                = azurerm_container_app.server.id

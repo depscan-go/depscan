@@ -27,15 +27,15 @@ variable "github_repo" {
 }
 
 variable "app_image" {
-  description = "Image used when the container app is first created. Later images are deployed by CI, and Terraform ignores changes to this."
+  description = "Image used when the container app is first created. Later images are deployed by CI (cd.yaml), and Terraform ignores changes to this."
   type        = string
-  default     = "mcr.microsoft.com/k8se/quickstart:latest"
+  default     = "ghcr.io/depscan-go/depscan:latest"
 }
 
 variable "app_port" {
-  description = "Port the container listens on (quickstart image: 80; depscan server: whatever cmd/server binds)."
+  description = "Port the container listens on (deploy/Dockerfile runs the server with -addr :8080)."
   type        = number
-  default     = 80
+  default     = 8080
 }
 
 variable "wire_database_url" {
