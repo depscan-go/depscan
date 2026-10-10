@@ -24,7 +24,7 @@ const (
 func main() {
 	path := flag.String("path", ".", "path to the repository to scan")
 	policyFile := flag.String("policy", "policy.yaml", "path to policy.yaml")
-	reportFile := flag.String("report", "", "write a CycloneDX SBOM report to this file")
+	reportFile := flag.String("report", "", "write a CycloneDX SBOM report to this file (plus <file>.sha256)")
 	commit := flag.String("commit", "", "VCS revision being scanned, recorded in the report (e.g. $GITHUB_SHA)")
 	flag.Parse()
 
@@ -46,18 +46,20 @@ func main() {
 	}
 
 	if *reportFile != "" {
-		if err := writeReport(*reportFile, report.Input{
+		digest, err := writeReport(*reportFile, report.Input{
 			Result:      result,
 			Policy:      p,
 			Subject:     subjectName(*path),
 			Commit:      *commit,
 			ScannedAt:   scannedAt,
 			ToolVersion: version,
-		}); err != nil {
+		})
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "report error: %v\n", err)
 			os.Exit(exitToolError)
 		}
 		fmt.Printf("Report:       %s\n", *reportFile)
+		fmt.Printf("Digest:       %s\n", digest)
 	}
 
 	fmt.Printf("Dependencies: %d\n", len(result.Deps))
@@ -88,20 +90,24 @@ func main() {
 	os.Exit(exitViolation)
 }
 
-func writeReport(file string, in report.Input) error {
+func writeReport(file string, in report.Input) (string, error) {
 	bom, err := report.Build(in)
 	if err != nil {
-		return err
+		return "", err
 	}
 	data, err := bom.Encode()
 	if err != nil {
-		return err
+		return "", err
 	}
-	return os.WriteFile(file, data, 0o644)
+	if err := os.WriteFile(file, data, 0o644); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(file+".sha256", []byte(report.ChecksumLine(data, file)), 0o644); err != nil {
+		return "", err
+	}
+	return report.Digest(data), nil
 }
 
-// subjectName is the scanned folder's name, never its absolute path, so the
-// report is the same on every machine and leaks nothing about the host.
 func subjectName(path string) string {
 	abs, err := filepath.Abs(path)
 	if err != nil {
