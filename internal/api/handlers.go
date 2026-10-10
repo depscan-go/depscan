@@ -26,13 +26,11 @@ type ScanRecord struct {
 
 type Handler struct {
 	engine   *scan.Engine
-	scanRoot string // absolute; POST /scans may only scan inside this folder
+	scanRoot string
 	mu       sync.RWMutex
 	scans    map[string]*ScanRecord
 }
 
-// New creates the API handler. scanRoot is the only folder clients may scan.
-// Without it, anyone who can reach the server could make it walk "/".
 func New(engine *scan.Engine, scanRoot string) (*Handler, error) {
 	root, err := filepath.Abs(scanRoot)
 	if err != nil {
@@ -51,9 +49,6 @@ func New(engine *scan.Engine, scanRoot string) (*Handler, error) {
 
 var errOutsideRoot = errors.New("path must be inside the scan root")
 
-// resolveScanPath accepts a path relative to scanRoot, or an absolute path
-// that lies inside it, and rejects anything that escapes scanRoot
-// ("../../etc", other drives, or symlinks pointing outside).
 func (h *Handler) resolveScanPath(p string) (string, error) {
 	candidate := p
 	if !filepath.IsAbs(p) {
@@ -63,7 +58,7 @@ func (h *Handler) resolveScanPath(p string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Rel compares case-insensitively on Windows, unlike a string prefix check.
+
 	rel, err := filepath.Rel(h.scanRoot, target)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", errOutsideRoot
@@ -89,7 +84,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 func newID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// crypto/rand failing means the OS has no entropy source. Nothing is safe to do.
+
 		panic("crypto/rand failed: " + err.Error())
 	}
 	return hex.EncodeToString(b)
@@ -129,16 +124,7 @@ func (h *Handler) CreateScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record := &ScanRecord{
-		ID:        newID(),
-		Path:      req.Path,
-		ScannedAt: time.Now().UTC(),
-		Result:    result,
-	}
-
-	h.mu.Lock()
-	h.scans[record.ID] = record
-	h.mu.Unlock()
+	record := h.Record(req.Path, result)
 
 	status := http.StatusOK
 	if len(result.Violations) > 0 {
@@ -146,6 +132,19 @@ func (h *Handler) CreateScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, status, record)
+}
+
+func (h *Handler) Record(label string, result *model.ScanResult) *ScanRecord {
+	record := &ScanRecord{
+		ID:        newID(),
+		Path:      label,
+		ScannedAt: time.Now().UTC(),
+		Result:    result,
+	}
+	h.mu.Lock()
+	h.scans[record.ID] = record
+	h.mu.Unlock()
+	return record
 }
 
 func (h *Handler) GetScan(w http.ResponseWriter, r *http.Request) {
@@ -184,15 +183,13 @@ func (h *Handler) ListScans(w http.ResponseWriter, r *http.Request) {
 //go:embed dashboard.html
 var dashboardHTML string
 
-// Dashboard serves the UI with the scan root filled in, so the page can show
-// which folders are allowed and suggest a matching path.
 func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
-	// "GET /" matches every path the mux does not know; only "/" is the page.
+
 	if r.URL.Path != "/" {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	// json.Marshal escapes <, > and &, so the value is safe inside <script>.
+
 	root, err := json.Marshal(h.scanRoot)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "encoding scan root")

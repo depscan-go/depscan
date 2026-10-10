@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/depscan-go/depscan/internal/api"
+	"github.com/depscan-go/depscan/internal/github"
 	"github.com/depscan-go/depscan/internal/policy"
 	"github.com/depscan-go/depscan/internal/scan"
 )
@@ -28,8 +29,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// No -scan-root given: allow anything under the user's home folder,
-	// so local repos can be scanned without extra flags.
 	if *scanRoot == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -53,6 +52,35 @@ func main() {
 	mux.HandleFunc("POST /scans", handler.CreateScan)
 	mux.HandleFunc("GET /scans", handler.ListScans)
 	mux.HandleFunc("GET /scans/{id}", handler.GetScan)
+
+	// GitHub webhooks are on only when a secret is set. The secret comes from
+	// the environment, not a flag, so it never shows up in the process list.
+	workers, cancelWorkers := context.WithCancel(context.Background())
+	var queue *github.Queue
+	if secret := os.Getenv("DEPSCAN_WEBHOOK_SECRET"); secret != "" {
+		fetcher := github.NewFetcher(os.Getenv("GITHUB_TOKEN"))
+		queue = github.NewQueue(50, fetcher, engine, func(o github.Outcome) {
+			label := fmt.Sprintf("github.com/%s#%d@%.7s", o.Job.Repo, o.Job.PR, o.Job.HeadSHA)
+			if o.Err != nil {
+				log.Printf("webhook: %s failed after %s: %v", label, o.Duration.Round(time.Millisecond), o.Err)
+				return
+			}
+			handler.Record(label, o.Result)
+			log.Printf("webhook: %s scanned in %s: %d lockfiles, %d deps, %d violations",
+				label, o.Duration.Round(time.Millisecond), o.Files, len(o.Result.Deps), len(o.Result.Violations))
+		})
+		queue.Start(workers, 2)
+
+		wh, err := github.NewWebhookHandler(secret, queue.Enqueue)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "webhook setup: %v\n", err)
+			os.Exit(1)
+		}
+		mux.Handle("POST /webhooks/github", wh)
+		log.Printf("webhooks: POST /webhooks/github (GitHub token: %t)", os.Getenv("GITHUB_TOKEN") != "")
+	} else {
+		log.Printf("webhooks: off (set DEPSCAN_WEBHOOK_SECRET to enable)")
+	}
 
 	root := api.Logger(api.Recovery(api.MaxBytes(mux)))
 
@@ -80,6 +108,11 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
+	}
+	// Stop webhook workers after the server stops accepting new deliveries.
+	cancelWorkers()
+	if queue != nil {
+		queue.Wait()
 	}
 	log.Println("done")
 }
