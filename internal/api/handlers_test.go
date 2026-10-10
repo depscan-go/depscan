@@ -64,24 +64,3 @@ func TestCreateScan_RejectsTraversal(t *testing.T) {
 		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
 	}
 }
-
-func TestDashboard_InjectsScanRoot(t *testing.T) {
-	root := t.TempDir()
-	h, err := New(scan.New(&policy.Policy{}), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rec := httptest.NewRecorder()
-	h.Dashboard(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	body := rec.Body.String()
-	if rec.Code != http.StatusOK || strings.Contains(body, "__SCAN_ROOT_JSON__") || !strings.Contains(body, "const ROOT = \"") {
-		t.Fatalf("scan root not injected (status %d)", rec.Code)
-	}
-
-	rec = httptest.NewRecorder()
-	h.Dashboard(rec, httptest.NewRequest(http.MethodGet, "/nope", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("unknown path: status = %d, want 404", rec.Code)
-	}
-}

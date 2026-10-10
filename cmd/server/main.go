@@ -48,6 +48,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", handler.Dashboard)
+	mux.HandleFunc("GET /assets/{name}", handler.Asset)
 	mux.HandleFunc("GET /healthz", handler.Healthz)
 	mux.HandleFunc("POST /scans", handler.CreateScan)
 	mux.HandleFunc("GET /scans", handler.ListScans)

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DepScan</title>
+<meta name="description" content="Scan a Go or npm project for vulnerable dependencies and denied licenses.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/app.css">
+<script>window.DEPSCAN_ROOT = __SCAN_ROOT_JSON__;</script>
+</head>
+<body>
+<canvas class="bg-gl" id="bgGl" aria-hidden="true"></canvas>
+<canvas class="bg-grid" id="bgGrid" aria-hidden="true"></canvas>
+<div class="bg-grain" id="bgGrain" aria-hidden="true"></div>
+
+<header class="appbar">
+  <div class="appbar-in">
+    <a class="brand" href="#scan" aria-label="DepScan home">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="15" width="2.6" height="7" rx="1" fill="var(--clean)"/>
+        <rect x="6.4" y="11" width="2.6" height="11" rx="1" fill="var(--low)"/>
+        <rect x="10.8" y="7" width="2.6" height="15" rx="1" fill="var(--medium)"/>
+        <rect x="15.2" y="4" width="2.6" height="18" rx="1" fill="var(--high)"/>
+        <rect x="19.6" y="2" width="2.6" height="20" rx="1" fill="var(--critical)"/>
+      </svg>
+      <span>DepScan</span>
+    </a>
+    <nav class="nav" id="nav" aria-label="Sections">
+      <a href="#scan" data-pane="scan">Scan</a>
+      <a href="#how" data-pane="how">How it works</a>
+      <span class="nav-ind" id="navInd" aria-hidden="true"></span>
+    </nav>
+    <div class="appbar-r">
+      <div class="root"><span>Scans inside</span> <code id="rootLabel"></code></div>
+      <button class="icon-btn" id="motionBtn" type="button" aria-pressed="false" title="Pause the background animation">
+        <svg class="i-off" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="3" width="2.6" height="10" rx="1" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" rx="1" fill="currentColor"/></svg>
+        <svg class="i-on" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.6 8z" fill="currentColor"/></svg>
+        <span class="sr">Background animation</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="page">
+  <!-- Scan -->
+  <main class="pane" id="paneScan" data-pane="scan">
+    <h1 class="ask words" id="ask">Which dependencies would block this build?</h1>
+    <form class="scan" id="scanForm" autocomplete="off">
+      <label class="field">
+        <span class="sr">Project folder</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+        <input id="path" spellcheck="false" autocapitalize="off">
+        <kbd aria-hidden="true">/</kbd>
+      </label>
+      <button class="primary" id="runBtn" type="submit">Scan</button>
+    </form>
+    <div class="recent" id="recent"></div>
+
+    <section class="intro" id="intro">
+      <p>Paste the folder of a Go or npm project. DepScan reads <code>go.mod</code> and <code>package-lock.json</code>, checks every package against OSV.dev, looks up its <button class="learn-term" type="button" data-learn="license">license</button>, and applies your <code>policy.yaml</code>.</p>
+      <p>You get one row per package with the version to upgrade to, including <button class="learn-term" type="button" data-learn="transitive">transitive dependencies</button> you never added yourself.</p>
+      <a class="eyebrow-link" href="#how"><span class="play"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 0v10l8.5-5z" fill="currentColor"/></svg></span><span>New here? <b>Watch a scan, start to finish</b> (2 min)</span></a>
+    </section>
+
+    <section class="loading" id="loading" hidden>
+      <div class="loading-head">
+        <p>Scanning <b id="loadingPath"></b> <span id="elapsed" class="mono"></span></p>
+        <button class="ghost" id="cancelBtn" type="button">Cancel</button>
+      </div>
+      <div class="strip-wrap"><div class="strip skel" id="skel"></div></div>
+      <p style="color:var(--faint);font-size:13px;margin-top:12px">Large repositories can take a minute: every advisory is fetched from OSV.dev.</p>
+    </section>
+
+    <div id="error"></div>
+    <section class="result" id="result" hidden></section>
+  </main>
+
+  <!-- How it works -->
+  <section class="pane" id="paneHow" data-pane="how" aria-labelledby="howTitle" hidden>
+    <div class="how-head">
+      <div>
+        <h1 id="howTitle">How a scan works</h1>
+        <p>Follow one sample project from a folder path to a pull request check. Each step shows what DepScan does, why, and the request it actually sends.</p>
+      </div>
+      <div class="how-meta"><span><b id="howCount">11</b> steps</span><span><b id="howLen">2:20</b> at 1×</span><span>Space to play</span></div>
+    </div>
+
+    <div class="player">
+      <ol class="chapters" id="chapters" aria-label="Steps"></ol>
+      <div class="screen" id="screen" tabindex="0" aria-label="Walkthrough player. Space plays or pauses, arrow keys seek.">
+        <div class="demo-stage" id="demoStage">
+          <canvas id="demoCanvas" role="img" aria-label=""></canvas>
+          <button class="bigplay" id="bigPlay" type="button" aria-label="Play the walkthrough" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5v13L14 8z" fill="currentColor"/></svg></button>
+          <div class="endcard" id="endCard" hidden>
+            <h3>That is a whole scan.</h3>
+            <p>Folder to lockfiles, licenses, advisories, policy, report and pull request. Try it on your own project.</p>
+            <div class="row-b">
+              <button class="primary" type="button" id="endScan">Scan a project</button>
+              <button class="ghost" type="button" id="endReplay">Watch again</button>
+            </div>
+          </div>
+        </div>
+        <div class="capbar"><span class="planned off" id="planned">Planned</span><p class="cap" id="cap" aria-live="off"></p></div>
+        <div class="transport" id="transport">
+          <button class="tbtn play" id="tPlay" type="button" aria-label="Play">
+            <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.2v11.6L13.5 8z" fill="currentColor"/></svg>
+            <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/><rect x="9.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/></svg>
+          </button>
+          <button class="tbtn" id="tPrev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="2" height="10" rx="1" fill="currentColor"/><path d="M13 3v10L5.5 8z" fill="currentColor"/></svg></button>
+          <button class="tbtn" id="tNext" type="button" aria-label="Next step"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="11.5" y="3" width="2" height="10" rx="1" fill="currentColor"/><path d="M3 3v10L10.5 8z" fill="currentColor"/></svg></button>
+          <span class="ttime" id="tTime"><b>0:00</b> / 0:00</span>
+          <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Position in the walkthrough" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+            <span class="knobx" id="knob"></span>
+            <span class="hovertip" id="hoverTip"></span>
+          </div>
+          <button class="speed" id="tSpeed" type="button" aria-label="Playback speed">1×</button>
+          <button class="tbtn" id="tFull" type="button" aria-label="Full screen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="explain">
+      <article class="narr" id="narr" aria-live="polite"></article>
+      <article class="hood" id="hood">
+        <header><b>Under the hood</b><span id="hoodFile"></span></header>
+        <pre id="hoodCode"></pre>
+      </article>
+    </div>
+    <p class="foot-note">The sample project is made up, but every advisory in it is a real OSV.dev record (checked October 2026), trimmed to keep the walkthrough short. Scan your own project for current results. Steps marked Planned show features that are not merged yet.</p>
+  </section>
+</div>
+
+<!-- Learn -->
+<button class="fab" id="learnFab" type="button" aria-expanded="false" aria-controls="learn" title="Learn the terms (press ?)">
+  <span class="pulse" aria-hidden="true"></span>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6.5C10.3 5.2 7.9 4.5 4 4.5v13c3.9 0 6.3.7 8 2 1.7-1.3 4.1-2 8-2v-13c-3.9 0-6.3.7-8 2z"/><path d="M12 6.5v13"/></svg>
+  <span>Learn</span>
+</button>
+<div class="learn" id="learn" role="dialog" aria-labelledby="learnTitle">
+  <div class="learn-head">
+    <div class="learn-top">
+      <div><h2 id="learnTitle">Learn the terms</h2><p>What DepScan checks, in plain words.</p></div>
+      <button class="icon-btn" id="learnClose" type="button" aria-label="Close"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>
+    <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span class="sr">Search topics</span><input id="learnQ" placeholder="Search: CVE, lockfile, SBOM…" autocomplete="off"></label>
+  </div>
+  <div class="learn-body">
+    <div class="lpanes">
+      <div class="lpane" id="learnList"></div>
+      <div class="lpane" id="learnDetail" tabindex="-1"></div>
+    </div>
+  </div>
+</div>
+
+<div class="tip" id="tip" role="tooltip"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="/assets/backdrop.js" defer></script>
+<script src="/assets/learn.js" defer></script>
+<script src="/assets/demo.js" defer></script>
+<script src="/assets/app.js" defer></script>
+</body>
+</html>
