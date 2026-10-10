@@ -19,7 +19,8 @@ resource "azurerm_federated_identity_credential" "gha_main" {
   user_assigned_identity_id = azurerm_user_assigned_identity.gha.id
   issuer                    = "https://token.actions.githubusercontent.com"
   # Only workflow runs on this repo's main branch can exchange their token for this identity.
-  subject  = "repo:${var.github_repo}:ref:refs/heads/main"
+  # The IDs in the prefix mean a deleted-and-recreated repo with the same name gets no access.
+  subject  = "${var.github_oidc_subject_prefix}:ref:refs/heads/main"
   audience = ["api://AzureADTokenExchange"]
 }
 

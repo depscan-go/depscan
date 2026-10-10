@@ -20,10 +20,10 @@ variable "prefix" {
   }
 }
 
-variable "github_repo" {
-  description = "owner/repo whose main branch may deploy via OIDC."
+variable "github_oidc_subject_prefix" {
+  description = "OIDC subject prefix of the repo allowed to deploy. The repo uses immutable subjects (owner/repo IDs included), so recreating it changes this. Get it with: gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix"
   type        = string
-  default     = "depscan-go/depscan"
+  default     = "repo:depscan-go@336174858/depscan@1404590227"
 }
 
 variable "app_image" {

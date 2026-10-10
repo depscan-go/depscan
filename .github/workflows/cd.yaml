@@ -68,6 +68,15 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      # Express leaves a failed deploy pointing at the broken image, so the next cold
+      # start would fail. Remember what is running so a failure can restore it.
+      - name: Remember the running image
+        run: |
+          prev=$(az containerapp show -g "$RESOURCE_GROUP" -n "$CONTAINER_APP" \
+            --query "properties.template.containers[0].image" -o tsv)
+          echo "running image: $prev"
+          echo "PREV_IMAGE=$prev" >> "$GITHUB_ENV"
+
       - name: Deploy
         run: |
           az containerapp update \
@@ -97,3 +106,13 @@ jobs:
             sleep 10
           done
           exit 1
+
+      - name: Roll back on failure
+        if: failure() && env.PREV_IMAGE != ''
+        run: |
+          echo "::error::deploy failed; restoring $PREV_IMAGE"
+          az containerapp update \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$CONTAINER_APP" \
+            --image "$PREV_IMAGE" \
+            --output none
