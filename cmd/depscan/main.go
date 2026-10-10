@@ -5,10 +5,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/depscan-go/depscan/internal/policy"
+	"github.com/depscan-go/depscan/internal/report"
 	"github.com/depscan-go/depscan/internal/scan"
 )
+
+var version = "dev"
 
 const (
 	exitClean     = 0
@@ -19,6 +24,8 @@ const (
 func main() {
 	path := flag.String("path", ".", "path to the repository to scan")
 	policyFile := flag.String("policy", "policy.yaml", "path to policy.yaml")
+	reportFile := flag.String("report", "", "write a CycloneDX SBOM report to this file")
+	commit := flag.String("commit", "", "VCS revision being scanned, recorded in the report (e.g. $GITHUB_SHA)")
 	flag.Parse()
 
 	fmt.Printf("Scanning: %s\n", *path)
@@ -31,10 +38,26 @@ func main() {
 	}
 
 	engine := scan.New(p)
+	scannedAt := time.Now()
 	result, err := engine.Run(context.Background(), *path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "scan error: %v\n", err)
 		os.Exit(exitToolError)
+	}
+
+	if *reportFile != "" {
+		if err := writeReport(*reportFile, report.Input{
+			Result:      result,
+			Policy:      p,
+			Subject:     subjectName(*path),
+			Commit:      *commit,
+			ScannedAt:   scannedAt,
+			ToolVersion: version,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "report error: %v\n", err)
+			os.Exit(exitToolError)
+		}
+		fmt.Printf("Report:       %s\n", *reportFile)
 	}
 
 	fmt.Printf("Dependencies: %d\n", len(result.Deps))
@@ -63,4 +86,26 @@ func main() {
 
 	fmt.Printf("Result: %d violation(s)\n", len(result.Violations))
 	os.Exit(exitViolation)
+}
+
+func writeReport(file string, in report.Input) error {
+	bom, err := report.Build(in)
+	if err != nil {
+		return err
+	}
+	data, err := bom.Encode()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(file, data, 0o644)
+}
+
+// subjectName is the scanned folder's name, never its absolute path, so the
+// report is the same on every machine and leaks nothing about the host.
+func subjectName(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Base(path)
+	}
+	return filepath.Base(abs)
 }
