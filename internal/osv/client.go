@@ -138,7 +138,7 @@ func (c *Client) QueryBatch(ctx context.Context, deps []model.Dependency) ([]mod
 		}
 	}
 
-	return findings, nil
+	return dedupe(findings), nil
 }
 
 func (c *Client) batchQuery(ctx context.Context, deps []model.Dependency) ([][]string, error) {
