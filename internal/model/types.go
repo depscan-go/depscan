@@ -15,11 +15,13 @@ type Finding struct {
 	Severity     string
 	Summary      string
 	FixedVersion string
+	Modified     string
 }
 
 type Violation struct {
 	Kind   string
 	Dep    Dependency
+	ID     string
 	Reason string
 }
 

@@ -30,9 +30,10 @@ func TestQueryBatch_FindsVulnerability(t *testing.T) {
 
 	mux.HandleFunc("/v1/vulns/GHSA-42xw-2xvc-qx8m", func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]interface{}{
-			"id":      "GHSA-42xw-2xvc-qx8m",
-			"summary": "Axios vulnerable to SSRF",
-			"aliases": []string{"CVE-2020-28168"},
+			"id":       "GHSA-42xw-2xvc-qx8m",
+			"modified": "2024-03-01T12:00:00Z",
+			"summary":  "Axios vulnerable to SSRF",
+			"aliases":  []string{"CVE-2020-28168"},
 			"database_specific": map[string]string{
 				"severity": "MEDIUM",
 			},
@@ -85,6 +86,9 @@ func TestQueryBatch_FindsVulnerability(t *testing.T) {
 	if f.FixedVersion != "0.21.2" {
 		t.Errorf("wrong fixed version: got %q", f.FixedVersion)
 	}
+	if f.Modified != "2024-03-01T12:00:00Z" {
+		t.Errorf("wrong modified time: got %q", f.Modified)
+	}
 	if f.Dep.Name != "axios" {
 		t.Errorf("wrong dep name: got %q", f.Dep.Name)
 	}
@@ -101,6 +105,9 @@ func TestQueryBatch_NoDeps(t *testing.T) {
 	}
 }
 
+// TestQueryBatch_FixedVersionMatchesPackage reproduces a real bug: the advisory
+// GHSA-cjjc-xp8v-855w lists Helm and x/crypto as affected. Before the fix,
+// the scanner told users to upgrade x/crypto to Helm's fixed version.
 func TestQueryBatch_FixedVersionMatchesPackage(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/querybatch", func(w http.ResponseWriter, r *http.Request) {

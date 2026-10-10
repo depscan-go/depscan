@@ -29,6 +29,7 @@ func Evaluate(p *Policy, findings []model.Finding, deps []model.Dependency) (vio
 		v := model.Violation{
 			Kind:   "vulnerability",
 			Dep:    f.Dep,
+			ID:     f.VulnID,
 			Reason: reason,
 		}
 

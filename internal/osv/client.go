@@ -60,6 +60,7 @@ type batchResponse struct {
 
 type vulnDetail struct {
 	ID       string   `json:"id"`
+	Modified string   `json:"modified"`
 	Aliases  []string `json:"aliases"`
 	Summary  string   `json:"summary"`
 	Severity []struct {
@@ -131,7 +132,8 @@ func (c *Client) QueryBatch(ctx context.Context, deps []model.Dependency) ([]mod
 				Aliases:      detail.Aliases,
 				Severity:     extractSeverity(detail),
 				Summary:      detail.Summary,
-				FixedVersion: extractFixedVersion(detail, dep), // CHANGED (2): pass dep
+				FixedVersion: extractFixedVersion(detail, dep),
+				Modified:     detail.Modified,
 			})
 		}
 	}
@@ -214,6 +216,10 @@ func extractSeverity(d *vulnDetail) string {
 	return "UNKNOWN"
 }
 
+// extractFixedVersion returns the fixed version for THIS dependency only.
+// One advisory can list several affected packages (for example x/crypto and
+// Helm), so we must match on package name and ecosystem. Returns "" when no
+// fix is published, rather than guessing.
 func extractFixedVersion(d *vulnDetail, dep model.Dependency) string {
 	for _, aff := range d.Affected {
 		if aff.Package.Name != dep.Name || aff.Package.Ecosystem != dep.Ecosystem {
