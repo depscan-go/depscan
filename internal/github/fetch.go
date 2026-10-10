@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,12 +13,15 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/depscan-go/depscan/internal/httpx"
 )
 
 type Fetcher struct {
 	http     *http.Client
 	baseURL  string
 	token    string
+	retry    httpx.Policy
 	maxFiles int
 	maxBytes int64
 }
@@ -29,6 +31,7 @@ func NewFetcher(token string) *Fetcher {
 		http:     &http.Client{Timeout: 30 * time.Second},
 		baseURL:  "https://api.github.com",
 		token:    token,
+		retry:    httpx.Default,
 		maxFiles: 200,
 		maxBytes: 20 << 20,
 	}
@@ -98,6 +101,7 @@ func (f *Fetcher) FetchLockfiles(ctx context.Context, repo, sha, dir string) (in
 	return written, nil
 }
 
+// skipped matches the folders the local scanner skips too.
 func skipped(p string) bool {
 	for _, part := range strings.Split(p, "/") {
 		if part == "vendor" || part == "node_modules" || part == ".git" {
@@ -115,6 +119,19 @@ func safeJoin(dir, p string) (string, error) {
 	return filepath.Join(dir, filepath.FromSlash(clean)), nil
 }
 
+func (f *Fetcher) get(ctx context.Context, u, accept string, limit int64) ([]byte, error) {
+	status, body, err := httpx.Do(ctx, f.http, f.retry, limit, func(ctx context.Context) (*http.Request, error) {
+		return f.newRequest(ctx, u, accept)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := checkStatus(status); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
 func (f *Fetcher) newRequest(ctx context.Context, u, accept string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -130,58 +147,35 @@ func (f *Fetcher) newRequest(ctx context.Context, u, accept string) (*http.Reque
 }
 
 func (f *Fetcher) getJSON(ctx context.Context, u string, v any) error {
-	req, err := f.newRequest(ctx, u, "application/vnd.github+json")
+	body, err := f.get(ctx, u, "application/vnd.github+json", 50<<20)
 	if err != nil {
 		return err
 	}
-	resp, err := f.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }() // read-only body
-	if err := checkStatus(resp); err != nil {
-		return err
-	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 50<<20)).Decode(v)
+	return json.Unmarshal(body, v)
 }
 
 func (f *Fetcher) download(ctx context.Context, u, dst string) error {
-	req, err := f.newRequest(ctx, u, "application/vnd.github.raw")
+	body, err := f.get(ctx, u, "application/vnd.github.raw", f.maxBytes)
 	if err != nil {
-		return err
-	}
-	resp, err := f.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }() // read-only body
-	if err := checkStatus(resp); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, io.LimitReader(resp.Body, f.maxBytes)); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
+	return os.WriteFile(dst, body, 0o644)
 }
 
+// ErrNotFound covers missing repos and commits, and private repos without a token.
 var ErrNotFound = errors.New("not found on GitHub (or private without a token)")
 
-func checkStatus(resp *http.Response) error {
-	switch resp.StatusCode {
+func checkStatus(status int) error {
+	switch status {
 	case http.StatusOK:
 		return nil
 	case http.StatusNotFound:
 		return ErrNotFound
 	case http.StatusForbidden, http.StatusTooManyRequests:
-		return fmt.Errorf("GitHub returned %d (rate limited? set GITHUB_TOKEN)", resp.StatusCode)
+		return fmt.Errorf("GitHub returned %d (rate limited? set GITHUB_TOKEN)", status)
 	}
-	return fmt.Errorf("GitHub returned %d", resp.StatusCode)
+	return fmt.Errorf("GitHub returned %d", status)
 }

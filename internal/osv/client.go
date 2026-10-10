@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
+	"github.com/depscan-go/depscan/internal/httpx"
 	"github.com/depscan-go/depscan/internal/model"
 )
 
@@ -167,25 +167,19 @@ func (c *Client) batchQuery(ctx context.Context, deps []model.Dependency) ([][]s
 			return nil, err
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/querybatch", bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := c.http.Do(req)
+		status, data, err := httpx.Do(ctx, c.http, httpx.Default, 50<<20, func(ctx context.Context) (*http.Request, error) {
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/querybatch", bytes.NewReader(body))
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			return req, nil
+		})
 		if err != nil {
 			return nil, fmt.Errorf("POST querybatch: %w", err)
 		}
-
-		data, err := io.ReadAll(resp.Body)
-		_ = resp.Body.Close() // read-only body: a close error changes nothing
-		if err != nil {
-			return nil, err
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("OSV querybatch returned %d", resp.StatusCode)
+		if status != http.StatusOK {
+			return nil, fmt.Errorf("OSV querybatch returned %d", status)
 		}
 
 		var br batchResponse
@@ -216,10 +210,6 @@ func extractSeverity(d *vulnDetail) string {
 	return "UNKNOWN"
 }
 
-// extractFixedVersion returns the fixed version for THIS dependency only.
-// One advisory can list several affected packages (for example x/crypto and
-// Helm), so we must match on package name and ecosystem. Returns "" when no
-// fix is published, rather than guessing.
 func extractFixedVersion(d *vulnDetail, dep model.Dependency) string {
 	for _, aff := range d.Affected {
 		if aff.Package.Name != dep.Name || aff.Package.Ecosystem != dep.Ecosystem {

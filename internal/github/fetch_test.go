@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/depscan-go/depscan/internal/github"
@@ -121,5 +122,29 @@ func TestFetchLockfiles_ValidatesInputs(t *testing.T) {
 		if _, err := f.FetchLockfiles(context.Background(), c.repo, c.sha, t.TempDir()); err == nil {
 			t.Errorf("FetchLockfiles(%q, %q) should fail", c.repo, c.sha)
 		}
+	}
+}
+
+func TestFetchLockfiles_RetriesDroppedConnection(t *testing.T) {
+	var calls int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/app/git/trees/{sha}", func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 { // first try: connection reset
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"tree": []map[string]any{blob("go.mod", "b1")}})
+	})
+	mux.HandleFunc("GET /repos/acme/app/git/blobs/b1", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("module x\n"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	n, err := github.NewFetcherWithBaseURL(srv.URL, "").FetchLockfiles(context.Background(), "acme/app", sha, t.TempDir())
+	if err != nil || n != 1 {
+		t.Fatalf("got %d files, %v; want the reset retried and 1 file", n, err)
 	}
 }

@@ -4,80 +4,62 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"net/url"
 	"sync"
+
+	"github.com/depscan-go/depscan/internal/httpx"
 )
 
 func fetchDetails(ctx context.Context, client *http.Client, ids []string, maxWorkers int, baseURL string) ([]*vulnDetail, error) {
 	results := make([]*vulnDetail, len(ids))
-	errors := make([]error, len(ids))
+	errs := make([]error, len(ids))
 	sem := make(chan struct{}, maxWorkers)
 
 	var wg sync.WaitGroup
-
 	for i, id := range ids {
 		wg.Add(1)
 		go func(idx int, vulnID string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-
-			detail, err := fetchOne(ctx, client, vulnID, baseURL)
-			if err != nil {
-				errors[idx] = err
-				return
-			}
-			results[idx] = detail
+			results[idx], errs[idx] = fetchOne(ctx, client, vulnID, baseURL)
 		}(i, id)
 	}
-
 	wg.Wait()
 
 	var combined []*vulnDetail
 	for i, r := range results {
-		if errors[i] != nil {
-			fmt.Printf("[warn] failed to fetch vuln %s: %v\n", ids[i], errors[i])
-			continue
+		if errs[i] != nil {
+			return nil, fmt.Errorf("fetching advisory %s: %w", ids[i], errs[i])
 		}
 		if r != nil {
 			combined = append(combined, r)
 		}
 	}
-
 	return combined, nil
 }
 
 func fetchOne(ctx context.Context, client *http.Client, id string, baseURL string) (*vulnDetail, error) {
-	url := baseURL + "/v1/vulns/" + id
+	u := baseURL + "/v1/vulns/" + url.PathEscape(id)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	status, data, err := httpx.Do(ctx, client, httpx.Default, 10<<20, func(ctx context.Context) (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GET %s: %w", u, err)
 	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", url, err)
+	if status == http.StatusNotFound {
+		fmt.Printf("[warn] advisory %s not found on OSV, skipping\n", id)
+		return nil, nil
 	}
-	defer func() { _ = resp.Body.Close() }() // CHANGED: read-only body, a close error changes nothing
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("vuln %s not found", id)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s returned %d", url, resp.StatusCode)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("GET %s returned %d", u, status)
 	}
 
 	var detail vulnDetail
 	if err := json.Unmarshal(data, &detail); err != nil {
-		return nil, fmt.Errorf("decoding vuln detail: %w", err)
+		return nil, fmt.Errorf("decoding advisory %s: %w", id, err)
 	}
-
 	return &detail, nil
 }
