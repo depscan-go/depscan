@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/depscan-go/depscan/internal/anchor"
 	"github.com/depscan-go/depscan/internal/policy"
 	"github.com/depscan-go/depscan/internal/report"
 	"github.com/depscan-go/depscan/internal/scan"
@@ -26,7 +27,22 @@ func main() {
 	policyFile := flag.String("policy", "policy.yaml", "path to policy.yaml")
 	reportFile := flag.String("report", "", "write a CycloneDX SBOM report to this file (plus <file>.sha256)")
 	commit := flag.String("commit", "", "VCS revision being scanned, recorded in the report (e.g. $GITHUB_SHA)")
+	anchorName := flag.String("anchor", "", "anchor the report digest with this backend (noop); needs -report")
 	flag.Parse()
+
+	var anchorer anchor.Anchorer
+	if *anchorName != "" {
+		if *reportFile == "" {
+			fmt.Fprintln(os.Stderr, "-anchor needs -report: only a written report can be anchored")
+			os.Exit(exitToolError)
+		}
+		a, err := anchor.New(*anchorName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "anchor error: %v\n", err)
+			os.Exit(exitToolError)
+		}
+		anchorer = a
+	}
 
 	fmt.Printf("Scanning: %s\n", *path)
 	fmt.Printf("Policy:   %s\n\n", *policyFile)
@@ -60,6 +76,15 @@ func main() {
 		}
 		fmt.Printf("Report:       %s\n", *reportFile)
 		fmt.Printf("Digest:       %s\n", digest)
+
+		if anchorer != nil {
+			receipt, err := anchorReport(anchorer, digest, *reportFile+".anchor.json")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "anchor error: %v\n", err)
+				os.Exit(exitToolError)
+			}
+			fmt.Printf("Anchored:     %s via %s\n", receipt.Digest, receipt.Backend)
+		}
 	}
 
 	fmt.Printf("Dependencies: %d\n", len(result.Deps))
@@ -90,6 +115,9 @@ func main() {
 	os.Exit(exitViolation)
 }
 
+// writeReport writes the report and, next to it, "<file>.sha256" in
+// sha256sum format, then returns the report's digest. Anchoring and
+// verification use that digest; `sha256sum -c <file>.sha256` checks it.
 func writeReport(file string, in report.Input) (string, error) {
 	bom, err := report.Build(in)
 	if err != nil {
@@ -114,4 +142,15 @@ func subjectName(path string) string {
 		return filepath.Base(path)
 	}
 	return filepath.Base(abs)
+}
+
+func anchorReport(a anchor.Anchorer, digest, receiptPath string) (anchor.Receipt, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	r, err := a.Anchor(ctx, digest)
+	if err != nil {
+		return anchor.Receipt{}, err
+	}
+	return r, anchor.WriteReceipt(receiptPath, r)
 }
