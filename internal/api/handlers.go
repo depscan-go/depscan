@@ -2,7 +2,6 @@ package api
 
 import (
 	"crypto/rand"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -175,30 +174,4 @@ func (h *Handler) ListScans(w http.ResponseWriter, r *http.Request) {
 	h.mu.RUnlock()
 
 	writeJSON(w, http.StatusOK, records)
-}
-
-// dashboardHTML is the single-page UI. It lives in its own file so it can be
-// edited with HTML/CSS tooling, and is compiled into the binary by go:embed.
-//
-//go:embed dashboard.html
-var dashboardHTML string
-
-func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
-
-	if r.URL.Path != "/" {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-
-	root, err := json.Marshal(h.scanRoot)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "encoding scan root")
-		return
-	}
-	page := strings.Replace(dashboardHTML, "__SCAN_ROOT_JSON__", string(root), 1)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if _, err := w.Write([]byte(page)); err != nil {
-		log.Printf("writing dashboard: %v", err)
-	}
 }
