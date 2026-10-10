@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 
+	"github.com/depscan-go/depscan/internal/license"
 	"github.com/depscan-go/depscan/internal/model"
 )
 
@@ -45,15 +46,31 @@ func Evaluate(p *Policy, findings []model.Finding, deps []model.Dependency) (vio
 		}
 	}
 
+	if p.SkipLicenseCheck {
+		return violations, warnings
+	}
+
+	deny := license.DenySet(p.DeniedLicenses)
 	for _, dep := range deps {
-		if dep.License == "" {
+		if license.Unknown(dep.License) {
+			v := model.Violation{
+				Kind:   "license",
+				Dep:    dep,
+				Reason: "license could not be determined (not on deps.dev or no SPDX identifier)",
+			}
+			if p.BlockUnknownLicense {
+				violations = append(violations, v)
+			} else {
+				warnings = append(warnings, v)
+			}
 			continue
 		}
-		if p.IsLicenseDenied(dep.License) {
+
+		if ok, reason := license.Check(dep.License, deny, true); !ok {
 			violations = append(violations, model.Violation{
 				Kind:   "license",
 				Dep:    dep,
-				Reason: fmt.Sprintf("license %s is not allowed by policy", dep.License),
+				Reason: fmt.Sprintf("%s (declared: %s)", reason, dep.License),
 			})
 		}
 	}

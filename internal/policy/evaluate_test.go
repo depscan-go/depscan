@@ -242,3 +242,48 @@ func TestValidate_RejectsBadExpiryDate(t *testing.T) {
 		t.Fatal("expected an error for a non YYYY-MM-DD date")
 	}
 }
+func TestEvaluate_LicenseExpressionOR(t *testing.T) {
+	p := &policy.Policy{DeniedLicenses: []string{"GPL-3.0-only"}}
+	deps := []model.Dependency{
+		{Name: "dual", Version: "1.0.0", License: "MIT OR GPL-3.0-only"},
+		{Name: "both", Version: "1.0.0", License: "MIT AND GPL-3.0-only"},
+	}
+
+	violations, _ := policy.Evaluate(p, nil, deps)
+	if len(violations) != 1 || violations[0].Dep.Name != "both" {
+		t.Fatalf("only the AND package should be blocked, got %+v", violations)
+	}
+}
+
+func TestEvaluate_UnknownLicenseWarnsByDefault(t *testing.T) {
+	p := &policy.Policy{}
+	deps := []model.Dependency{{Name: "mystery", Version: "1.0.0", License: ""}}
+
+	violations, warnings := policy.Evaluate(p, nil, deps)
+	if len(violations) != 0 || len(warnings) != 1 {
+		t.Fatalf("want 0 violations and 1 warning, got %d and %d", len(violations), len(warnings))
+	}
+}
+
+func TestEvaluate_UnknownLicenseBlocksWhenConfigured(t *testing.T) {
+	p := &policy.Policy{BlockUnknownLicense: true}
+	deps := []model.Dependency{{Name: "mystery", Version: "1.0.0", License: "non-standard"}}
+
+	violations, _ := policy.Evaluate(p, nil, deps)
+	if len(violations) != 1 || violations[0].Kind != "license" {
+		t.Fatalf("want 1 license violation, got %+v", violations)
+	}
+}
+
+func TestEvaluate_SkipLicenseCheck(t *testing.T) {
+	p := &policy.Policy{SkipLicenseCheck: true, BlockUnknownLicense: true, DeniedLicenses: []string{"GPL-3.0-only"}}
+	deps := []model.Dependency{
+		{Name: "gpl", Version: "1.0.0", License: "GPL-3.0-only"},
+		{Name: "mystery", Version: "1.0.0"},
+	}
+
+	violations, warnings := policy.Evaluate(p, nil, deps)
+	if len(violations) != 0 || len(warnings) != 0 {
+		t.Fatalf("license checks should be skipped, got %d violations %d warnings", len(violations), len(warnings))
+	}
+}
