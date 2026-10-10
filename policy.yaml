@@ -52,6 +52,9 @@ check_transitive: true
 # Common safe licenses (allow these): MIT, Apache-2.0, BSD-2-Clause,
 # BSD-3-Clause, ISC, MPL-2.0, CC0-1.0
 #
+# Expressions are understood: "MIT OR GPL-3.0-only" passes (you may
+# choose MIT), "MIT AND GPL-3.0-only" is blocked (you must accept both).
+#
 # Commonly denied in permissive/commercial projects:
 denied_licenses:
   - GPL-2.0
@@ -67,6 +70,13 @@ denied_licenses:
   - SSPL-1.0       # MongoDB's license — very restrictive
   - BUSL-1.1       # Business Source License — not OSI approved
   - CC-BY-NC-4.0   # Non-commercial restriction
+
+# Licenses are looked up on deps.dev. Some packages have no license data
+# or a non-SPDX license file. true = fail the scan on those, false = warn.
+block_unknown_license: false
+
+# Set to true to skip the deps.dev license lookup entirely (offline runs).
+skip_license_check: false
 
 
 # ---------------------------------------------------------
@@ -98,4 +108,4 @@ fail_fast: false
 
 # Maximum number of violations before the scan exits early,
 # even when fail_fast is false. 0 = no limit.
-max_violations: 0
+max_violations: 0 
