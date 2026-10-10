@@ -6,34 +6,41 @@
 <title>DepScan</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  /* Night city: a navy sky, towers lit in severity colours, and one violet
+     that means "you can click this". Severity hues are reserved for risk. */
   :root {
     color-scheme: light dark;
-    --bg: #F4F6F9; --surface: #FFFFFF; --surface-2: #EDF0F4; --line: #DDE2E9; --line-2: #C9D0DA;
-    --text: #141A24; --muted: #586274; --faint: #8A93A3;
-    --btn: #141A24; --btn-text: #FFFFFF; --focus: #2F7FD1;
-    --critical: #E5484D; --high: #F76B15; --medium: #E2B203; --low: #3E8ED0; --clean: #30A46C; --unknown: #A3ACBA;
-    --critical-t: #C42B30; --high-t: #C24E00; --medium-t: #8A6400; --low-t: #1F6FB2; --clean-t: #18794E; --unknown-t: #586274;
-    --shadow: 0 1px 2px rgba(20,26,36,.06), 0 8px 24px -12px rgba(20,26,36,.18);
+    --bg: #EEF2FB; --surface: #FFFFFF; --surface-2: #E5EBF8; --line: #D4DCEE; --line-2: #B9C5E0;
+    --text: #0E1734; --muted: #4A5880; --faint: #7A87AA;
+    --act: #5B4BFF; --act-hover: #4A3AF0; --act-text: #FFFFFF; --act-soft: rgba(91,75,255,.12);
+    --btn: #0E1734; --btn-text: #FFFFFF; --focus: #0EA5E9;
+    --critical: #F0145A; --high: #FF7A00; --medium: #F2B705; --low: #0EA5E9; --clean: #10B981; --unknown: #8B8FC7;
+    --critical-t: #C2073F; --high-t: #B85300; --medium-t: #8A6500; --low-t: #036A9E; --clean-t: #047857; --unknown-t: #5B5F99;
+    --stage-glow: rgba(91,75,255,.10);
+    --shadow: 0 1px 2px rgba(14,23,52,.06), 0 10px 30px -14px rgba(14,23,52,.22);
+    --display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
     --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
     --ease: cubic-bezier(.22,1,.36,1);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0F141D; --surface: #161D29; --surface-2: #1C2533; --line: #263042; --line-2: #34405A;
-      --text: #E8ECF2; --muted: #9AA4B6; --faint: #687286;
-      --btn: #E8ECF2; --btn-text: #0F141D; --focus: #6FB1EC;
-      --critical: #F2555A; --high: #F7823A; --medium: #E8C23A; --low: #5AA2E0; --clean: #3DBB7E; --unknown: #5B6578;
-      --critical-t: #FF8A8E; --high-t: #FFA466; --medium-t: #F0CF5A; --low-t: #85BEF0; --clean-t: #5FD39C; --unknown-t: #9AA4B6;
-      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px -16px rgba(0,0,0,.6);
+      --bg: #0E1734; --surface: #142046; --surface-2: #1B2A58; --line: #24356C; --line-2: #33478C;
+      --text: #EEF2FF; --muted: #A8B3DC; --faint: #7482B4;
+      --act: #8070FF; --act-hover: #9486FF; --act-text: #FFFFFF; --act-soft: rgba(128,112,255,.18);
+      --btn: #EEF2FF; --btn-text: #0E1734; --focus: #38BDF8;
+      --critical: #FF3D6E; --high: #FF8A1F; --medium: #FFC83D; --low: #38BDF8; --clean: #2EE6A6; --unknown: #8B93C9;
+      --critical-t: #FF7D9C; --high-t: #FFAE66; --medium-t: #FFDC7E; --low-t: #82D4FB; --clean-t: #74F0C6; --unknown-t: #B7BDE4;
+      --stage-glow: rgba(128,112,255,.16);
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 18px 40px -20px rgba(0,0,0,.7);
     }
   }
 
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 400 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; background: radial-gradient(1200px 520px at 70% -180px, var(--stage-glow), transparent 70%) no-repeat, var(--bg); color: var(--text); font: 400 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
   button, input { font: inherit; color: inherit; }
   button { cursor: pointer; }
   a { color: inherit; }
@@ -45,22 +52,27 @@
 
   /* top bar */
   .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 44px; }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; letter-spacing: -.01em; }
+  .brand { display: flex; align-items: center; gap: 10px; font: 700 19px var(--display); letter-spacing: -.02em; }
   .brand svg { width: 22px; height: 22px; }
+  .top-r { display: flex; align-items: center; gap: 18px; min-width: 0; }
+  .how { font-size: 13.5px; font-weight: 600; color: var(--act); text-decoration: none; white-space: nowrap; }
+  .how:hover { text-decoration: underline; text-underline-offset: 3px; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   .root { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; min-width: 0; }
   .root code { font: 400 12.5px var(--mono); color: var(--text); background: var(--surface-2); border: 1px solid var(--line); padding: 3px 8px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
 
   /* scan form */
-  .ask { font-size: 30px; line-height: 1.2; font-weight: 600; letter-spacing: -.02em; margin: 0 0 18px; max-width: 22ch; }
+  .ask { font: 700 40px/1.08 var(--display); letter-spacing: -.03em; margin: 0 0 22px; max-width: 18ch; }
   form.scan { display: flex; gap: 10px; }
   .field { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; padding: 0 14px; box-shadow: var(--shadow); transition: border-color .2s, box-shadow .2s; }
-  .field:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent), var(--shadow); }
+  .field:focus-within { border-color: var(--act); box-shadow: 0 0 0 3px var(--act-soft), var(--shadow); }
   .field svg { width: 18px; height: 18px; color: var(--faint); flex: none; }
   .field input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 15px 0; font: 400 15px var(--mono); }
   .field input::placeholder { color: var(--faint); }
   .field kbd { font: 500 11px var(--mono); color: var(--faint); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
-  .primary { flex: none; border: 0; border-radius: 12px; padding: 0 26px; background: var(--btn); color: var(--btn-text); font-weight: 600; transition: transform .15s var(--ease), opacity .2s; }
-  .primary:hover { opacity: .9; }
+  .primary { flex: none; border: 0; border-radius: 12px; padding: 0 30px; background: var(--act); color: var(--act-text); font-weight: 600; font-size: 16px; box-shadow: 0 8px 24px -10px var(--act); transition: transform .15s var(--ease), background .2s; }
+  .primary:hover { background: var(--act-hover); }
   .primary:active { transform: scale(.97); }
   .primary:disabled { opacity: .45; cursor: default; }
   .recent { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; min-height: 30px; align-items: center; }
@@ -85,7 +97,7 @@
   /* verdict */
   .result { margin-top: 56px; }
   .verdict { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-  .verdict h2 { margin: 0; font-size: 40px; line-height: 1.1; font-weight: 600; letter-spacing: -.025em; max-width: 20ch; }
+  .verdict h2 { margin: 0; font: 800 52px/1.02 var(--display); letter-spacing: -.035em; max-width: 16ch; }
   .verdict .state { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; margin-bottom: 12px; color: var(--sc); }
   .verdict .state::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--sc); box-shadow: 0 0 0 4px color-mix(in srgb, var(--sc) 20%, transparent); }
   .verdict .sub { margin: 12px 0 0; color: var(--muted); max-width: 64ch; }
@@ -99,15 +111,18 @@
 
   /* dependency skyline */
   .sky { margin-top: 32px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 16px 18px 12px; box-shadow: var(--shadow); animation: appear .6s var(--ease) .15s both; }
-  .sky-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .sky-top { display: flex; align-items: center; justify-content: space-between; gap: 10px 12px; margin-bottom: 12px; flex-wrap: wrap; }
   .sky-title { margin: 0; font-size: 13.5px; color: var(--muted); }
   .sky-title b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .sky-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .sky-mode button b { font-weight: 600; font-variant-numeric: tabular-nums; margin-left: 2px; }
+  .sky-mode button[aria-pressed="true"] { background: var(--act-soft); color: var(--act); }
   .view { position: relative; display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); flex: none; }
   .view button { position: relative; z-index: 1; border: 0; background: none; width: 34px; height: 26px; display: grid; place-items: center; color: var(--faint); border-radius: 7px; transition: color .2s; }
   .view button:hover, .view button[aria-pressed="true"] { color: var(--text); }
   .view .knob { position: absolute; top: 3px; left: 3px; width: 34px; height: 26px; border-radius: 7px; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 0 1px var(--line); transition: transform .4s var(--ease); }
   .view[data-v="3d"] .knob { transform: translateX(34px); }
-  .stage { position: relative; width: 100%; height: 120px; overflow: hidden; border-radius: 8px; }
+  .stage { position: relative; width: 100%; height: 120px; overflow: hidden; border-radius: 10px; background: radial-gradient(80% 70% at 50% 85%, var(--stage-glow), transparent 70%); }
   .stage:has(canvas:focus-visible) { box-shadow: 0 0 0 2px var(--focus); }
   .stage canvas { display: block; position: absolute; top: 0; left: 0; touch-action: pan-y; outline: none; -webkit-tap-highlight-color: transparent; }
   .corner { position: absolute; display: flex; flex-direction: column; gap: 1px; pointer-events: none; opacity: 0; transform: translateY(8px); transition: opacity .3s, transform .4s var(--ease); max-width: 38%; }
@@ -133,7 +148,7 @@
 
   /* upgrade path timeline */
   .path { padding: 16px 0 14px; border-bottom: 1px dashed var(--line); }
-  .path-h { margin: 0 0 14px; font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+  .path-h { margin: 0 0 14px; font-size: 13px; font-weight: 600; color: var(--muted); }
   .track { overflow-x: auto; scrollbar-width: thin; padding-bottom: 6px; }
   .track ol { list-style: none; margin: 0; padding: 0; display: flex; }
   .stop { position: relative; padding-right: 16px; flex: 1 1 0; min-width: 160px; }
@@ -162,14 +177,15 @@
   .facts div { padding: 14px 16px 14px 0; }
   .facts div + div { padding-left: 16px; border-left: 1px solid var(--line); }
   .facts dt { font-size: 12.5px; color: var(--muted); }
-  .facts dd { margin: 2px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .facts dd { margin: 2px 0 0; font: 700 30px/1.15 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .facts dd.hot { color: var(--critical-t); }
 
   /* tabs */
   .tabs { position: relative; display: flex; gap: 4px; margin-top: 40px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
   .tab { border: 0; background: none; padding: 12px 14px; color: var(--muted); font-weight: 500; white-space: nowrap; display: flex; align-items: center; gap: 8px; transition: color .2s; }
   .tab:hover, .tab[aria-selected="true"] { color: var(--text); }
   .tab .n { font: 500 12px var(--sans); font-variant-numeric: tabular-nums; background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 1px 8px; }
-  .bar { position: absolute; bottom: -1px; left: 0; height: 2px; background: var(--text); border-radius: 2px; transition: transform .35s var(--ease), width .35s var(--ease); }
+  .bar { position: absolute; bottom: -1px; left: 0; height: 3px; background: var(--act); border-radius: 3px; transition: transform .35s var(--ease), width .35s var(--ease); }
 
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 20px 0 14px; }
   .search { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 0 12px; transition: border-color .2s; }
@@ -202,8 +218,8 @@
   .fix { display: flex; align-items: center; gap: 8px; }
   .fix .to { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
   .fix .to b { font: 500 13px var(--mono); color: var(--text); }
-  .copy { border: 1px solid var(--line-2); background: var(--surface); border-radius: 8px; padding: 4px 10px; font-size: 12.5px; font-weight: 500; transition: background .2s, border-color .2s; white-space: nowrap; }
-  .copy:hover { background: var(--surface-2); }
+  .copy { border: 1px solid transparent; background: var(--act-soft); color: var(--act); border-radius: 8px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; transition: background .2s, color .2s; white-space: nowrap; }
+  .copy:hover { background: var(--act); color: var(--act-text); }
   .nofix { font-size: 12.5px; color: var(--faint); white-space: nowrap; }
   .chev { width: 18px; height: 18px; color: var(--faint); transition: transform .3s var(--ease); }
   .pkg.open .chev { transform: rotate(90deg); }
@@ -258,8 +274,8 @@
     .row { grid-template-columns: minmax(0, 1fr) 90px; }
     .row > :nth-child(3), .row > :nth-child(4), .row > :nth-child(2) { display: none; }
     .hist { grid-template-columns: minmax(0, 1fr) 110px; }
-    .ask { font-size: 24px; }
-    .verdict h2 { font-size: 30px; }
+    .ask { font-size: 30px; }
+    .verdict h2 { font-size: 36px; }
     .corner .big { font-size: 24px; }
   }
   @media (max-width: 520px) {
@@ -268,6 +284,7 @@
     .primary { padding: 13px; }
     .field kbd { display: none; }
     .top { flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 32px; }
+    .top-r { flex-direction: column; align-items: flex-start; gap: 6px; }
     .root code { max-width: 70vw; }
     .sky { padding: 12px 12px 10px; border-radius: 14px; }
     .corner.bl { display: none; }
@@ -275,6 +292,255 @@
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+
+  /* ---------- walkthrough ---------- */
+  .tour { margin-top: 72px; }
+  .tour-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .tour-head h2 { margin: 0; font: 700 32px/1.1 var(--display); letter-spacing: -.025em; }
+  .tour-head p { margin: 6px 0 0; color: var(--muted); max-width: 60ch; }
+  .tour-play { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+  .tour-play .i-pause, .tour.playing .tour-play .i-play { display: none; }
+  .tour.playing .tour-play .i-pause { display: inline; }
+  .tour-frame { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); padding: 18px 18px 14px; outline: none; }
+  .tour-frame:focus-visible { box-shadow: 0 0 0 2px var(--focus), var(--shadow); }
+
+  .tour-segs { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 6px; margin-bottom: 18px; }
+  .seg-btn { all: unset; cursor: pointer; display: block; padding: 8px 0; }
+  .seg-btn span { display: block; height: 4px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+  .seg-btn i { display: block; height: 100%; background: var(--act); transform: scaleX(0); transform-origin: left; }
+  .seg-btn.done i { transform: none; }
+  .seg-btn.cur i { transform: none; }
+  .tour.playing .seg-btn.cur i { animation: segfill var(--dur, 7000ms) linear both; }
+  .seg-btn:focus-visible span { outline: 2px solid var(--focus); outline-offset: 3px; }
+  @keyframes segfill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  .tour-viewport { overflow: hidden; border-radius: 14px; touch-action: pan-y; }
+  .tour-track { display: flex; transition: transform .6s var(--ease); }
+  .slide { flex: 0 0 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; align-items: center; padding: 6px 4px 6px 6px; }
+  .slide-text .step { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--act); font-variant-numeric: tabular-nums; }
+  .slide h3 { margin: 0 0 10px; font: 700 28px/1.12 var(--display); letter-spacing: -.02em; }
+  .slide-text p { margin: 0; color: var(--muted); max-width: 44ch; }
+  .slide code { font: 400 13px var(--mono); color: var(--text); background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
+  .tour-cta { margin-top: 22px; padding: 12px 22px; }
+  .tour-ctl { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+  .tour-ctl .ghost { display: inline-flex; align-items: center; gap: 6px; }
+  .tour-ctl .ghost:disabled { opacity: .35; cursor: default; }
+  .tour-count { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* Every scene sits on the same night-sky panel. */
+  .scene { position: relative; height: 330px; border-radius: 14px; overflow: hidden; padding: 22px;
+    background: radial-gradient(90% 80% at 50% 110%, var(--stage-glow), transparent 70%), var(--surface-2);
+    border: 1px solid var(--line); font-size: 13.5px; }
+  .scene .chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); font: 500 12.5px var(--mono); white-space: nowrap; }
+  .scene .chip b { font-weight: 400; color: var(--muted); }
+  .cursor { position: absolute; left: 0; top: 0; filter: drop-shadow(0 2px 4px rgba(0,0,0,.35)); pointer-events: none; }
+  @keyframes pop { from { opacity: 0; transform: scale(.6); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+  @keyframes slidein { from { opacity: 0; transform: translateX(-14px); } }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* 1: type a path, click Scan */
+  .s1 { display: flex; flex-direction: column; justify-content: center; gap: 22px; }
+  .m-form { display: flex; gap: 10px; }
+  .m-field { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--act); box-shadow: 0 0 0 3px var(--act-soft); border-radius: 12px; padding: 13px 14px; color: var(--faint); }
+  .m-field .typed { font: 400 14px var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; }
+  .caret { width: 2px; height: 18px; background: var(--act); animation: blink 1s steps(1) infinite; margin-left: -8px; }
+  .m-btn { display: grid; place-items: center; padding: 0 22px; border-radius: 12px; background: var(--act); color: var(--act-text); font-weight: 600; }
+  .m-load { color: var(--muted); font-size: 13px; }
+  .m-bar { margin-top: 8px; height: 6px; border-radius: 6px; background: var(--surface); overflow: hidden; }
+  .m-bar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--low), var(--act), var(--critical)); transform-origin: left; }
+  .slide.on .s1 .m-load { animation: rise .4s var(--ease) 2.9s both; }
+  .slide.on .s1 .m-bar i { animation: grow 2.2s var(--ease) 3s both; }
+  @keyframes grow { from { transform: scaleX(0); } }
+  .slide.on .s1 .m-btn { animation: press .35s ease 2.55s both; }
+  @keyframes press { 50% { transform: scale(.92); filter: brightness(1.2); } }
+  .slide.on .s1 .cursor { animation: s1c 1.1s var(--ease) 1.4s both; }
+  @keyframes s1c { from { transform: translate(40%, 300px); opacity: 0; } 20% { opacity: 1; } }
+  .s1 .cursor { left: auto; right: 34px; top: 112px; }
+
+  /* 2: walk the tree, collect packages */
+  .s2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: center; }
+  .tree { list-style: none; margin: 0; padding: 0; font: 400 13px var(--mono); }
+  .tree li { padding: 5px 8px; border-radius: 7px; display: flex; justify-content: space-between; gap: 8px; }
+  .tree li.deep { margin-left: 18px; }
+  .tree li:not(:first-child) { margin-left: 18px; }
+  .tree li.deep { margin-left: 36px; }
+  .tree em { font: 500 11.5px var(--sans); font-style: normal; color: var(--muted); }
+  .tree .lock { background: var(--act-soft); color: var(--text); box-shadow: inset 3px 0 0 var(--act); }
+  .tree .lock em { color: var(--act); }
+  .tree .skip span { text-decoration: line-through; color: var(--faint); }
+  .tree .dim { color: var(--faint); }
+  .slide.on .s2 .tree li { animation: slidein .4s var(--ease) both; animation-delay: calc(.2s + var(--i) * .22s); }
+  .pkgs { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .slide.on .s2 .chip { animation: pop .45s cubic-bezier(.34,1.56,.64,1) both; animation-delay: calc(2s + var(--i) * .18s); }
+  .found { margin: 6px 0 0; font: 700 18px var(--display); color: var(--text); }
+  .slide.on .s2 .found { animation: rise .5s var(--ease) 3s both; }
+
+  /* 3 and 4: package rows */
+  .rows { position: relative; display: flex; flex-direction: column; gap: 8px; }
+  .row-l { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); font: 500 13px var(--mono); }
+  .row-l span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .lic { font: 600 11.5px var(--sans); padding: 2px 9px; border-radius: 999px; }
+  .lic.ok { color: var(--clean-t); background: color-mix(in srgb, var(--clean) 16%, transparent); }
+  .lic.no { color: var(--critical-t); background: color-mix(in srgb, var(--critical) 18%, transparent); }
+  .row-l em { font: 500 11.5px var(--sans); font-style: normal; color: var(--critical-t); }
+  .slide.on .s3 .row-l { animation: rise .35s var(--ease) both; animation-delay: calc(.15s + var(--i) * .1s); }
+  .slide.on .s3 .lic { animation: pop .45s cubic-bezier(.34,1.56,.64,1) both; animation-delay: calc(1s + var(--i) * .35s); }
+  .slide.on .s3 .row-l em { animation: rise .4s var(--ease) 2.9s both; }
+  .slide.on .s3 .row-l.bad { animation: rise .35s var(--ease) .55s both, flagbad .6s ease 2.8s both; }
+  @keyframes flagbad { to { border-color: var(--critical); box-shadow: 0 0 0 3px color-mix(in srgb, var(--critical) 18%, transparent); } }
+
+  .s4 .beam { position: absolute; top: -6px; bottom: -6px; left: 0; width: 70px; z-index: 1; pointer-events: none; opacity: 0;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--low) 40%, transparent), transparent); }
+  .slide.on .s4 .beam { animation: sweep 1.6s ease-in-out .4s both; }
+  @keyframes sweep { 0% { opacity: 0; transform: translateX(-80px); } 15%, 85% { opacity: 1; } 100% { opacity: 0; transform: translateX(560px); } }
+  .sev { font: 600 11.5px var(--sans); padding: 2px 9px; border-radius: 999px; color: var(--text); background: color-mix(in srgb, var(--c) 24%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent); }
+  .slide.on .s4 .sev { animation: pop .45s cubic-bezier(.34,1.56,.64,1) both; animation-delay: calc(1.1s + var(--i) * .22s); }
+  .merge { position: relative; margin-top: 16px; height: 58px; }
+  .merge .tag { position: absolute; top: 0; padding: 4px 10px; border-radius: 7px; font: 500 12px var(--mono); background: var(--surface); border: 1px solid var(--line-2); }
+  .merge .a { left: 0; } .merge .b { left: 52%; }
+  .merge .merged { position: absolute; left: 0; top: 34px; font-size: 12.5px; color: var(--muted); }
+  .slide.on .s4 .merge .a { animation: rise .4s var(--ease) 2.5s both, mergeA .7s var(--ease) 3.4s forwards; }
+  .slide.on .s4 .merge .b { animation: rise .4s var(--ease) 2.6s both, mergeB .7s var(--ease) 3.4s forwards; }
+  @keyframes mergeA { to { transform: translateX(40px); opacity: .0; } }
+  @keyframes mergeB { to { left: 0; border-color: var(--act); box-shadow: 0 0 0 3px var(--act-soft); } }
+  .slide.on .s4 .merged { animation: rise .4s var(--ease) 4s both; }
+
+  /* 5: policy lines light up as packages land in lanes */
+  .s5 { display: grid; grid-template-rows: auto 1fr; gap: 16px; }
+  .policy { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); font: 400 12.5px/1.8 var(--mono); white-space: pre-wrap; }
+  .pl { display: inline-block; border-radius: 5px; padding: 0 4px; margin: 0 -4px; }
+  .slide.on .s5 .l1 { animation: hl 1s ease .6s both; }
+  .slide.on .s5 .l2 { animation: hl 1s ease 1.6s both; }
+  .slide.on .s5 .l3 { animation: hl 1s ease 2.4s both; }
+  @keyframes hl { 30% { background: var(--act-soft); color: var(--act); } }
+  .lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; min-height: 0; }
+  .lane { border-radius: 10px; padding: 10px; background: color-mix(in srgb, var(--c) 9%, var(--surface)); border: 1px solid color-mix(in srgb, var(--c) 35%, var(--line)); display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
+  .lane h4 { margin: 0 0 2px; font: 600 12.5px var(--sans); color: var(--text); }
+  .lane .none { font-size: 12px; color: var(--faint); }
+  .slide.on .s5 .lane .chip { animation: drop .5s cubic-bezier(.34,1.56,.64,1) both; animation-delay: calc(.9s + var(--i) * .45s); }
+  @keyframes drop { from { opacity: 0; transform: translateY(-26px); } }
+
+  /* 6: a small city rises, then the verdict lands */
+  .s6 { display: grid; place-items: center; }
+  .city { width: 100%; height: 100%; max-height: 280px; overflow: visible; }
+  .city .tw { transform-box: fill-box; transform-origin: 50% 100%; }
+  .slide.on .s6 .tw { animation: towerup .9s var(--ease) both; animation-delay: calc(.2s + var(--d) * .09s); }
+  @keyframes towerup { from { transform: scaleY(.04); opacity: .2; } }
+  .verdict-chip { position: absolute; left: 18px; top: 18px; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 12px; background: var(--surface); border: 1px solid color-mix(in srgb, var(--critical) 45%, var(--line)); box-shadow: var(--shadow); }
+  .verdict-chip i { width: 9px; height: 9px; border-radius: 50%; background: var(--critical); box-shadow: 0 0 0 4px color-mix(in srgb, var(--critical) 22%, transparent); }
+  .verdict-chip b { color: var(--critical-t); }
+  .verdict-chip span { color: var(--muted); font-size: 12.5px; }
+  .slide.on .s6 .verdict-chip { animation: rise .5s var(--ease) 1.9s both; }
+
+  /* 7: expand, see the path, copy */
+  .s7 { display: flex; flex-direction: column; justify-content: center; }
+  .pkgcard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .pk-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px 12px 0; }
+  .pk-head > i { align-self: stretch; width: 4px; background: var(--critical); border-radius: 0 3px 3px 0; }
+  .pk-head div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .pk-head b { font: 500 13.5px var(--mono); }
+  .pk-head div span { font-size: 12px; color: var(--muted); }
+  .m-copy { padding: 5px 11px; border-radius: 8px; background: var(--act-soft); color: var(--act); font: 600 12.5px var(--sans); white-space: nowrap; }
+  .pk-path { display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 0 10px; padding: 14px 16px 16px; border-top: 1px dashed var(--line); }
+  .pt { display: flex; flex-direction: column; gap: 3px; }
+  .pt i { width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--critical); background: var(--surface); }
+  .pt.b i { border-color: var(--clean); background: var(--clean); box-shadow: 0 0 0 4px color-mix(in srgb, var(--clean) 22%, transparent); }
+  .pt b { font: 500 12.5px var(--mono); }
+  .pt span { font-size: 11.5px; color: var(--muted); }
+  .pt.b { align-items: flex-end; text-align: right; }
+  .ln { padding-top: 6px; }
+  .ln i { display: block; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--critical), var(--clean)); transform-origin: left; }
+  .slide.on .s7 .pk-path { animation: open .6s var(--ease) .5s both; }
+  @keyframes open { from { opacity: 0; transform: translateY(-8px); clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+  .slide.on .s7 .ln i { animation: grow .8s var(--ease) 1.1s both; }
+  .slide.on .s7 .pt.b { animation: pop .45s cubic-bezier(.34,1.56,.64,1) 1.8s both; }
+  .s7 .cursor { left: auto; right: 40px; top: 70px; }
+  .slide.on .s7 .cursor { animation: s7c 1s var(--ease) 2.2s both; }
+  @keyframes s7c { from { transform: translate(-120px, 160px); opacity: 0; } 25% { opacity: 1; } }
+  .slide.on .s7 .m-copy { animation: press .35s ease 3.15s both, copied .1s linear 3.3s forwards; }
+  @keyframes copied { to { background: var(--act); color: var(--act-text); } }
+  .m-toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 9px 14px; border-radius: 10px; background: var(--text); color: var(--bg); font-size: 12.5px; white-space: nowrap; }
+  .slide.on .s7 .m-toast { animation: toastup .45s var(--ease) 3.4s both; }
+  @keyframes toastup { from { opacity: 0; transform: translate(-50%, 14px); } }
+
+  /* 8: hash, verify, tamper, verify again */
+  .s8 { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); grid-template-rows: auto 1fr; gap: 14px; align-content: center; }
+  .file { grid-row: span 2; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .fname { margin: 0 0 8px; font: 600 12.5px var(--mono); color: var(--muted); }
+  .file pre { margin: 0; font: 400 12px/1.8 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .flip { position: relative; display: inline-block; }
+  .flip .now { position: absolute; left: 0; top: 0; opacity: 0; }
+  .slide.on .s8 .flip .was { animation: fade .3s ease 3.6s forwards; }
+  .slide.on .s8 .flip .now { animation: tamper .3s ease 3.6s forwards; }
+  @keyframes fade { to { opacity: 0; } }
+  @keyframes tamper { to { opacity: 1; background: color-mix(in srgb, var(--critical) 30%, transparent); border-radius: 4px; } }
+  .hash { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .hash p { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+  .hash code { display: block; font: 500 12.5px var(--mono); color: var(--act); overflow-wrap: anywhere; min-height: 2.6em; }
+  .checks { position: relative; }
+  .checks span { position: absolute; left: 0; top: 0; padding: 7px 12px; border-radius: 10px; font: 600 12.5px var(--mono); }
+  .checks .ok { color: var(--clean-t); background: color-mix(in srgb, var(--clean) 16%, transparent); }
+  .checks .bad { color: var(--critical-t); background: color-mix(in srgb, var(--critical) 18%, transparent); opacity: 0; }
+  .slide.on .s8 .checks .ok { animation: pop .4s cubic-bezier(.34,1.56,.64,1) 2.6s both, fade .25s ease 3.9s forwards; }
+  .slide.on .s8 .checks .bad { animation: badin .45s cubic-bezier(.34,1.56,.64,1) 4.1s forwards; }
+  @keyframes badin { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+
+  /* 9: the pull request check */
+  .s9 { display: flex; align-items: center; }
+  .pr { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .pr-title { margin: 0; font: 700 15px var(--display); }
+  .check { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 13px; }
+  .check b { font-weight: 600; }
+  .check .ico { position: relative; width: 18px; height: 18px; flex: none; }
+  .check .msg { position: relative; flex: 1; min-width: 0; height: 1.5em; }
+  .spin, .check .x { position: absolute; inset: 0; }
+  .spin { border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--act); animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .check .x { display: grid; place-items: center; border-radius: 50%; background: var(--critical); color: #fff; font-style: normal; font-size: 11px; opacity: 0; }
+  .check .wait, .check .res { position: absolute; left: 0; top: 0; white-space: nowrap; }
+  .check .wait { color: var(--muted); }
+  .check .res { color: var(--critical-t); opacity: 0; }
+  .slide.on .s9 .spin, .slide.on .s9 .wait { animation: spin .8s linear infinite, fade .2s ease 1.8s forwards; }
+  .slide.on .s9 .wait { animation: fade .2s ease 1.8s forwards; }
+  .slide.on .s9 .x, .slide.on .s9 .res { animation: badin .45s cubic-bezier(.34,1.56,.64,1) 1.9s forwards; }
+  .comment { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+  .comment p { margin: 0 0 8px; }
+  .ct { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px dashed var(--line); font: 400 12.5px var(--mono); }
+  .ct span:last-child { color: var(--clean-t); }
+  .slide.on .s9 .comment { animation: rise .5s var(--ease) 2.6s both; }
+
+  @media (max-width: 820px) {
+    .slide { grid-template-columns: 1fr; gap: 16px; }
+    .scene { height: 300px; padding: 16px; }
+    .tour-head { flex-direction: column; align-items: flex-start; }
+    .tour-head h2 { font-size: 26px; }
+    .slide h3 { font-size: 23px; }
+    .s2 { grid-template-columns: 1fr; gap: 10px; }
+    .s2 .pkgs { flex-direction: row; flex-wrap: wrap; }
+    .s2 .found { width: 100%; }
+    .s8 { grid-template-columns: 1fr; }
+    .file { grid-row: auto; }
+  }
+  @media (max-width: 520px) {
+    .tour-frame { padding: 12px 12px 10px; border-radius: 16px; }
+    .tour-segs { gap: 4px; }
+    .scene { height: 320px; font-size: 12.5px; }
+    .lanes { grid-template-columns: 1fr; gap: 6px; }
+    .lane { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 8px; }
+    .lane h4 { margin: 0 4px 0 0; }
+    .scene.s5 { height: 360px; }
+    .s3 .row-l em { display: none; }
+  }
+
+  /* Reduced motion: show each scene's final state instead of hiding it. */
+  @media (prefers-reduced-motion: reduce) {
+    .check .x, .check .res, .checks .bad { opacity: 1 !important; }
+    .spin, .check .wait { opacity: 0 !important; }
+    .checks { display: flex; gap: 8px; flex-wrap: wrap; }
+    .checks span { position: static; }
+    .tour-track { transition: none; }
   }
 </style>
 </head>
@@ -291,7 +557,10 @@
       </svg>
       DepScan
     </div>
-    <div class="root">Scans folders inside <code id="rootLabel"></code></div>
+    <div class="top-r">
+      <a class="how" href="#tour">How it works</a>
+      <div class="root">Scans folders inside <code id="rootLabel"></code></div>
+    </div>
   </header>
 
   <main>
@@ -309,7 +578,7 @@
 
     <section class="intro" id="intro">
       <p>Paste the folder of a Go or npm project. DepScan reads <code>go.mod</code> and <code>package-lock.json</code>, checks every package against OSV.dev, and applies your <code>policy.yaml</code>.</p>
-      <p>You get one row per package with the version to upgrade to.</p>
+      <p>You get one row per package with the version to upgrade to. New here? The walkthrough below shows each step.</p>
     </section>
 
     <section class="loading" id="loading" hidden>
@@ -323,6 +592,209 @@
 
     <div id="error"></div>
     <section class="result" id="result" hidden></section>
+
+    <section class="tour" id="tour" aria-labelledby="tourTitle">
+      <div class="tour-head">
+        <div>
+          <h2 id="tourTitle">How a scan works</h2>
+          <p>From a folder path to a pull request check, in nine steps. Use the arrows, swipe, or let it play.</p>
+        </div>
+        <button class="ghost tour-play" id="tourPlay" type="button" aria-pressed="false">
+          <svg class="i-play" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+          <svg class="i-pause" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/><rect x="9.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/></svg>
+          <span>Play</span>
+        </button>
+      </div>
+
+      <div class="tour-frame" id="tourFrame" tabindex="0" aria-roledescription="carousel" aria-label="How a scan works">
+        <div class="tour-segs" id="tourSegs" role="tablist" aria-label="Steps"></div>
+
+        <div class="tour-viewport" id="tourViewport">
+          <div class="tour-track" id="tourTrack">
+
+            <article class="slide" aria-roledescription="slide" data-title="Paste a project folder">
+              <div class="slide-text">
+                <p class="step">Step 1 of 9</p>
+                <h3>Paste a project folder</h3>
+                <p>Point DepScan at any folder inside your scan root and press Scan. Nothing is uploaded: the server reads the files where they are.</p>
+              </div>
+              <div class="scene s1" aria-hidden="true">
+                <div class="m-form">
+                  <div class="m-field"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg><span class="typed" data-text="C:\Users\you\shop-api"></span><i class="caret"></i></div>
+                  <span class="m-btn">Scan</span>
+                </div>
+                <div class="m-load"><span>Scanning shop-api</span><div class="m-bar"><i></i></div></div>
+                <svg class="cursor" viewBox="0 0 24 24" width="26" height="26"><path d="M5 3l14 8-6 1.6L10 19z" fill="#fff" stroke="#0E1734" stroke-width="1.4" stroke-linejoin="round"/></svg>
+              </div>
+            </article>
+
+            <article class="slide" aria-roledescription="slide" data-title="It finds every lockfile">
+              <div class="slide-text">
+                <p class="step">Step 2 of 9</p>
+                <h3>It finds every lockfile</h3>
+                <p>DepScan walks the folder for <code>go.mod</code> and <code>package-lock.json</code>, and skips <code>vendor</code> and <code>node_modules</code> so each package is counted once.</p>
+              </div>
+              <div class="scene s2" aria-hidden="true">
+                <ul class="tree">
+                  <li style="--i:0">shop-api</li>
+                  <li class="lock" style="--i:1"><span>go.mod</span><em>lockfile</em></li>
+                  <li class="dim" style="--i:2"><span>go.sum</span></li>
+                  <li style="--i:3"><span>web</span></li>
+                  <li class="lock deep" style="--i:4"><span>package-lock.json</span><em>lockfile</em></li>
+                  <li class="skip deep" style="--i:5"><span>node_modules</span><em>skipped</em></li>
+                  <li class="skip" style="--i:6"><span>vendor</span><em>skipped</em></li>
+                </ul>
+                <div class="pkgs">
+                  <span class="chip" style="--i:0">github.com/gin-gonic/gin <b>1.9.0</b></span>
+                  <span class="chip" style="--i:1">golang.org/x/crypto <b>0.0.0-2019…</b></span>
+                  <span class="chip" style="--i:2">axios <b>0.21.1</b></span>
+                  <span class="chip" style="--i:3">follow-redirects <b>1.14.7</b></span>
+                  <span class="chip" style="--i:4">fancy-log <b>2.0.0</b></span>
+                  <p class="found">5 packages found</p>
+                </div>
+              </div>
+            </article>
+
+            <article class="slide" aria-roledescription="slide" data-title="Licenses come from deps.dev">
+              <div class="slide-text">
+                <p class="step">Step 3 of 9</p>
+                <h3>Licenses come from deps.dev</h3>
+                <p>Each package's declared license is looked up and checked against your deny list. <code>MIT OR GPL</code> passes because you may choose MIT.</p>
+              </div>
+              <div class="scene s3" aria-hidden="true">
+                <div class="rows">
+                  <div class="row-l" style="--i:0"><span>gin-gonic/gin</span><b class="lic ok">MIT</b></div>
+                  <div class="row-l" style="--i:1"><span>golang.org/x/crypto</span><b class="lic ok">BSD-3-Clause</b></div>
+                  <div class="row-l" style="--i:2"><span>axios</span><b class="lic ok">MIT</b></div>
+                  <div class="row-l" style="--i:3"><span>follow-redirects</span><b class="lic ok">MIT</b></div>
+                  <div class="row-l bad" style="--i:4"><span>fancy-log</span><b class="lic no">GPL-3.0-only</b><em>denied by policy</em></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="slide" aria-roledescription="slide" data-title="Advisories come from OSV.dev">
+              <div class="slide-text">
+                <p class="step">Step 4 of 9</p>
+                <h3>Advisories come from OSV.dev</h3>
+                <p>Every package version is checked against OSV. When two databases describe the same bug, the copies are merged into one finding, so counts stay honest.</p>
+              </div>
+              <div class="scene s4" aria-hidden="true">
+                <div class="rows">
+                  <i class="beam"></i>
+                  <div class="row-l" style="--i:0"><span>gin-gonic/gin</span><b class="sev" style="--c:var(--medium)">1 medium</b></div>
+                  <div class="row-l" style="--i:1"><span>golang.org/x/crypto</span><b class="sev" style="--c:var(--critical)">8 critical</b></div>
+                  <div class="row-l" style="--i:2"><span>axios</span><b class="sev" style="--c:var(--high)">11 high</b></div>
+                  <div class="row-l" style="--i:3"><span>follow-redirects</span><b class="sev" style="--c:var(--medium)">4 medium</b></div>
+                  <div class="row-l" style="--i:4"><span>fancy-log</span><b class="sev" style="--c:var(--clean)">clean</b></div>
+                </div>
+                <div class="merge">
+                  <span class="tag a">GO-2020-0012</span><span class="tag b">GHSA-ffhg-7mh4-33c4</span>
+                  <span class="merged">One finding, both IDs kept as aliases</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="slide" aria-roledescription="slide" data-title="Your policy decides">
+              <div class="slide-text">
+                <p class="step">Step 5 of 9</p>
+                <h3>Your policy decides</h3>
+                <p><code>policy.yaml</code> says which severities block the build and which only warn. Exceptions need a reason and can expire.</p>
+              </div>
+              <div class="scene s5" aria-hidden="true">
+                <pre class="policy"><span class="pl l1">block_severities: [CRITICAL, HIGH]</span>
+<span class="pl l2">warn_severities:  [MEDIUM]</span>
+<span class="pl l3">denied_licenses:  [GPL-3.0-only]</span></pre>
+                <div class="lanes">
+                  <div class="lane" style="--c:var(--critical)"><h4>Blocks the build</h4>
+                    <span class="chip" style="--i:0">x/crypto</span><span class="chip" style="--i:1">axios</span><span class="chip" style="--i:4">fancy-log</span></div>
+                  <div class="lane" style="--c:var(--medium)"><h4>Warns</h4>
+                    <span class="chip" style="--i:2">gin</span><span class="chip" style="--i:3">follow-redirects</span></div>
+                  <div class="lane" style="--c:var(--clean)"><h4>Passes</h4>
+                    <span class="none">Nothing else</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="slide" aria-roledescription="slide" data-title="One look shows the risk">
+              <div class="slide-text">
+                <p class="step">Step 6 of 9</p>
+                <h3>One look shows the risk</h3>
+                <p>Each package becomes a tower: taller and redder means riskier. The verdict at the top tells you whether this build would pass.</p>
+              </div>
+              <div class="scene s6" aria-hidden="true">
+                <svg class="city" id="tourCity" viewBox="0 0 320 220"></svg>
+                <div class="verdict-chip"><i></i><b>Blocked</b><span>3 packages block this build</span></div>
+              </div>
+            </article>
+
+            <article class="slide" aria-roledescription="slide" data-title="Copy the fix">
+              <div class="slide-text">
+                <p class="step">Step 7 of 9</p>
+                <h3>Copy the fix</h3>
+                <p>Open a package to see its upgrade path, then copy the exact command that clears its advisories.</p>
+              </div>
+              <div class="scene s7" aria-hidden="true">
+                <div class="pkgcard">
+                  <div class="pk-head"><i></i><div><b>golang.org/x/crypto</b><span>8 critical, 8 high</span></div><span class="m-copy">Copy command</span></div>
+                  <div class="pk-path">
+                    <div class="pt a"><i></i><b>0.0.0-2019…</b><span>Installed</span></div>
+                    <div class="ln"><i></i></div>
+                    <div class="pt b"><i></i><b>0.52.0</b><span>Clears all</span></div>
+                  </div>
+                </div>
+                <div class="m-toast">Copied: go get golang.org/x/crypto@v0.52.0</div>
+                <svg class="cursor" viewBox="0 0 24 24" width="26" height="26"><path d="M5 3l14 8-6 1.6L10 19z" fill="#fff" stroke="#0E1734" stroke-width="1.4" stroke-linejoin="round"/></svg>
+              </div>
+            </article>
+
+            <article class="slide" aria-roledescription="slide" data-title="Every report gets a fingerprint">
+              <div class="slide-text">
+                <p class="step">Step 8 of 9</p>
+                <h3>Every report gets a fingerprint</h3>
+                <p>The result is saved as a CycloneDX report with a SHA-256 hash. Change one byte and the check fails, so nobody can quietly turn a failing scan into a pass.</p>
+              </div>
+              <div class="scene s8" aria-hidden="true">
+                <div class="file"><p class="fname">report.cdx.json</p>
+<pre>"bomFormat": "CycloneDX",
+"depscan:result": "<span class="flip"><span class="was">fail</span><span class="now">pass</span></span>",
+"depscan:violations": "3"</pre></div>
+                <div class="hash"><p>SHA-256</p><code class="typed" data-text="2d5a09f618e38e98d541f200bc22c66a"></code></div>
+                <div class="checks"><span class="ok">report.cdx.json: OK</span><span class="bad">report.cdx.json: FAILED</span></div>
+              </div>
+            </article>
+
+            <article class="slide" aria-roledescription="slide" data-title="It runs on every pull request">
+              <div class="slide-text">
+                <p class="step">Step 9 of 9</p>
+                <h3>It runs on every pull request</h3>
+                <p>Connect the GitHub webhook and each pull request is scanned at its latest commit, with the result posted where reviewers already look.</p>
+                <button class="primary tour-cta" id="tourCta" type="button">Scan a project</button>
+              </div>
+              <div class="scene s9" aria-hidden="true">
+                <div class="pr">
+                  <p class="pr-title">Pull request #42: Bump axios to 0.27.0</p>
+                  <div class="check"><span class="ico"><i class="spin"></i><i class="x">✕</i></span><b>depscan</b><span class="msg"><span class="wait">Scanning the head commit</span><span class="res">2 packages block this merge</span></span></div>
+                  <div class="comment">
+                    <p><b>depscan</b> found 2 blocking packages</p>
+                    <div class="ct"><span>golang.org/x/crypto</span><span>upgrade to 0.52.0</span></div>
+                    <div class="ct"><span>axios</span><span>upgrade to 1.16.0</span></div>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+          </div>
+        </div>
+
+        <div class="tour-ctl">
+          <button class="ghost" id="tourPrev" type="button" aria-label="Previous step">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Back</button>
+          <span class="tour-count" id="tourCount" aria-live="polite">Step 1 of 9</span>
+          <button class="ghost next" id="tourNext" type="button" aria-label="Next step">Next
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 <div class="tip" id="tip" role="tooltip"></div>
@@ -481,6 +953,7 @@ function showError(msg, path) {
 /* ---------- rendering ---------- */
 function render(record) {
   if (sky) sky.destroy();
+  ui.skyModeSet = false;
   ui.record = record; ui.model = buildModel(record); ui.sky = null;
   $('intro').hidden = true; $('error').innerHTML = '';
   ui.q = ''; ui.shown = PAGE; ui.depQ = ''; ui.depShown = 60; ui.depFilter = 'all'; ui.open = new Set();
@@ -517,7 +990,7 @@ function render(record) {
     (m.deps.length ? skyHTML(m) : '') +
     '<dl class="facts">' +
       fact('Dependencies', m.deps.length) + fact('Direct', direct) + fact('With advisories', m.vulnPkgs) +
-      fact('Blocking', m.blockPkgs) + fact('Scan time', secs) +
+      fact('Blocking', m.blockPkgs, m.blockPkgs > 0) + fact('Scan time', secs) +
     '</dl>' +
     '<div class="tabs" role="tablist" id="tabs">' +
       tabBtn('fixes', 'Fixes', m.blockPkgs + m.warnPkgs) +
@@ -538,7 +1011,7 @@ function render(record) {
   res.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
 }
 
-const fact = (k, v) => '<div><dt>' + k + '</dt><dd' + (typeof v === 'number' ? ' data-n="' + v + '"' : '') + '>' + v + '</dd></div>';
+const fact = (k, v, hot) => '<div><dt>' + k + '</dt><dd' + (hot ? ' class="hot"' : '') + (typeof v === 'number' ? ' data-n="' + v + '"' : '') + '>' + v + '</dd></div>';
 
 // The headline numbers count up once, quickly, so the eye lands on them.
 function countUp() {
@@ -598,10 +1071,19 @@ function quad(ctx, p, o, r) {
 
 let sky = null;
 
+// A view with mostly clean packages wastes the stage on flat tiles and
+// shrinks the towers that matter. "Risky" lays out only packages with
+// advisories and turns every clean one into the platform they stand on.
 function skyHTML(m) {
   const items = m.groups.slice().map((g) => { g.score = g.advs.reduce((s, a) => s + SKY_WEIGHT[a.sev], 0); return g; })
     .sort((a, b) => b.score - a.score || rank(a.worst) - rank(b.worst) || a.dep.Name.localeCompare(b.dep.Name));
   ui.sky = items;
+  const risky = items.filter((g) => g.score > 0).length;
+  const clean = items.length - risky;
+  // Default to Risky when clean packages dominate; All when there is nothing to focus on.
+  if (!ui.skyModeSet) ui.skyMode = risky > 0 && clean > risky ? 'risk' : 'all';
+  const canFocus = risky > 0 && clean > 0;
+
   const counts = {};
   items.forEach((g) => { counts[g.worst] = (counts[g.worst] || 0) + 1; });
   const legend = SEVS.filter((s) => counts[s]).map((s) =>
@@ -609,44 +1091,77 @@ function skyHTML(m) {
   const top = items[0];
   const towers = top && top.score
     ? '<div class="corner bl"><span class="lbl">Tallest tower</span><span class="big">' + esc(top.dep.Name) + '</span><span class="lbl">' + plural(top.advs.length, 'advisory', 'advisories') + ', risk score ' + top.score + '</span></div>' : '';
+  const modes = canFocus
+    ? '<div class="seg sky-mode" id="skyMode" role="group" aria-label="Packages shown">' +
+        '<button type="button" data-m="risk" aria-pressed="' + (ui.skyMode === 'risk') + '">Risky <b>' + risky + '</b></button>' +
+        '<button type="button" data-m="all" aria-pressed="' + (ui.skyMode === 'all') + '">All <b>' + items.length + '</b></button>' +
+      '</div>' : '';
   return '<section class="sky is3d" id="sky">' +
-    '<div class="sky-top"><p class="sky-title"><b>' + items.length + '</b> ' + (items.length === 1 ? 'dependency' : 'dependencies') + ', tower height is risk</p>' +
+    '<div class="sky-top"><p class="sky-title" id="skyTitle"></p>' +
+      '<div class="sky-ctl">' + modes +
       '<div class="view" id="viewToggle" data-v="3d" role="group" aria-label="Chart view"><span class="knob" aria-hidden="true"></span>' +
         '<button type="button" data-v="2d" aria-pressed="false" title="Flat map" aria-label="Flat map"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1" fill="currentColor"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1" fill="currentColor"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1" fill="currentColor"/><rect x="9" y="9" width="5.5" height="5.5" rx="1" fill="currentColor"/></svg></button>' +
         '<button type="button" data-v="3d" aria-pressed="true" title="3D skyline" aria-label="3D skyline"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 1.2 14.2 4.6v6.8L8 14.8 1.8 11.4V4.6Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M1.8 4.6 8 8l6.2-3.4M8 8v6.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>' +
-      '</div></div>' +
-    '<div class="stage" id="stage"><canvas id="skyCanvas" tabindex="0" role="img" aria-label="' + items.length + ' dependencies drawn as towers. Taller and redder means riskier. Use the arrow keys to read each package."></canvas>' +
+      '</div></div></div>' +
+    '<div class="stage" id="stage"><canvas id="skyCanvas" tabindex="0" role="img"></canvas>' +
       '<div class="corner tr"><span class="lbl">Blocking the build</span><span class="big" style="color:' + (m.blockPkgs ? 'var(--critical-t)' : 'var(--clean-t)') + '">' + m.blockPkgs + '</span><span class="lbl">' + (m.blockPkgs === 1 ? 'package' : 'packages') + ' your policy rejects</span></div>' +
       towers + '</div>' +
-    '<div class="sky-foot"><span class="hint" id="skyHint">Hover a tower for details. Drag to orbit, double-click to reset.</span><div class="keys" id="skyKeys">' + legend + '</div></div>' +
+    '<div class="sky-foot"><span class="hint" id="skyHint"></span><div class="keys" id="skyKeys">' + legend + '</div></div>' +
     '<p class="sr" aria-live="polite" id="skyLive"></p>' +
   '</section>';
 }
 
-function startSky() {
+function startSky(opts) {
+  opts = opts || {};
+  const prev = sky ? sky.state() : null;
   if (sky) sky.destroy();
-  const items = ui.sky, root = $('sky'), stage = $('stage'), canvas = $('skyCanvas'), tip = $('tip');
-  if (!items || !root) return;
+  const all = ui.sky, root = $('sky'), stage = $('stage'), canvas = $('skyCanvas'), tip = $('tip');
+  if (!all || !root) return;
   const ctx = canvas.getContext('2d');
   const ac = new AbortController(), on = (el, ev, fn) => el.addEventListener(ev, fn, { signal: ac.signal });
   const rmq = matchMedia('(prefers-reduced-motion: reduce)');
   let reduced = rmq.matches;
 
+  const riskyAll = all.filter((g) => g.score > 0);
+  const focus = ui.skyMode === 'risk' && riskyAll.length > 0 && riskyAll.length < all.length;
+  const items = focus ? riskyAll : all;
+  const cleanCount = all.length - riskyAll.length;
+  const plate = focus && cleanCount > 0; // the clean packages, as one platform
+
   const n = items.length;
-  const R = n < 4 ? 1 : Math.max(2, Math.min(24, Math.round(Math.sqrt(n / 3.2))));
-  const cols = Math.ceil(n / R);
+  // A near-square block (slightly wide in All mode) fills the stage far
+  // better than a long strip. Cells are handed out by diagonal from the back
+  // corner, so the riskiest, tallest towers stand behind the shorter ones.
+  const C = Math.max(1, Math.ceil(Math.sqrt(n * (focus ? 1.2 : 1.7))));
+  const R = Math.max(1, Math.ceil(n / C));
+  const cells = [];
+  for (let x = 0; x < C; x++) for (let y = 0; y < R; y++) cells.push([x, y]);
+  cells.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || Math.abs(a[0] - a[1]) - Math.abs(b[0] - b[1]) || a[0] - b[0]);
+
   const wk = new Float32Array(n), dy = new Float32Array(n), lv = new Uint8Array(n), hgt = new Float32Array(n), zs = new Float32Array(n);
   const hover = new Float32Array(n), dim = new Float32Array(n), polys = new Float32Array(n * 24), faces = new Uint8Array(n);
   const order = Array.from({ length: n }, (_, i) => i);
+  const at = new Map();
   const maxScore = Math.max(1, ...items.map((g) => g.score));
   items.forEach((g, i) => {
-    wk[i] = Math.floor(i / R); dy[i] = i % R; lv[i] = rank(g.worst);
-    hgt[i] = g.score > 0 ? .5 + Math.pow(g.score / maxScore, .8) * 6.6 : .18;
+    wk[i] = cells[i][0]; dy[i] = cells[i][1]; lv[i] = rank(g.worst);
+    hgt[i] = g.score > 0 ? .5 + Math.pow(g.score / maxScore, .8) * 6.4 : .18;
+    at.set(wk[i] + ',' + dy[i], i);
   });
+  const diag = Math.max(1, C + R - 2);
+  const PLATE = -2, PAD = .45, PLATE_H = .16;
+  const platePoly = new Float32Array(24);
 
-  let t = 0, target = 1, yaw = 0, elev = 0, yawGoal = 0, elevGoal = 0, entered = false;
+  // Titles and hints follow the mode, so the copy always matches the picture.
+  $('skyTitle').innerHTML = focus
+    ? '<b>' + n + '</b> risky ' + (n === 1 ? 'package' : 'packages') + ' standing on <b>' + cleanCount + '</b> clean ones'
+    : '<b>' + all.length + '</b> ' + (all.length === 1 ? 'dependency' : 'dependencies') + ', tower height is risk';
+  canvas.setAttribute('aria-label', n + ' packages drawn as towers. Taller and redder means riskier. Use the arrow keys to read each package.');
+
+  let t = prev ? prev.t : 0, target = prev ? prev.target : 1, yaw = 0, elev = 0, yawGoal = 0, elevGoal = 0, entered = !!prev;
+  if (prev && prev.target === 1 && !reduced) t = .35; // replay the rise when switching modes
   let W = 0, H2 = 0, H3 = 0, Hmax = 0, dpr = 1, lastH = -1, raf = 0, last = 0;
-  let col = [], fg = [20, 26, 36], bg = [255, 255, 255];
+  let col = [], fg = [20, 26, 36], bg = [255, 255, 255], plateCol = [0, 0, 0];
   let hovered = -1, pinned = -1, active = -1, legendLevel = -1, legendSticky = -1;
 
   const retheme = () => {
@@ -654,63 +1169,94 @@ function startSky() {
     fg = toRGB(cs.getPropertyValue('--text').trim(), fg);
     bg = toRGB(cs.getPropertyValue('--surface').trim(), bg);
     const dark = (0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) / 255 < .45;
-    const flat = [0, 1, 2].map((k) => bg[k] + (fg[k] - bg[k]) * (dark ? .14 : .1));
+    const flat = [0, 1, 2].map((k) => bg[k] + (fg[k] - bg[k]) * (dark ? .16 : .1));
+    const cleanRGB = toRGB(cs.getPropertyValue('--clean').trim(), fg);
+    plateCol = [0, 1, 2].map((k) => flat[k] + (cleanRGB[k] - flat[k]) * (dark ? .22 : .28));
     root.style.setProperty('--flat', rgb(flat[0], flat[1], flat[2]));
+    // In Risky mode clean packages are the platform, so the legend uses its colour.
+    const cleanKey = root.querySelector('.key[data-l="' + rank('NONE') + '"]');
+    if (cleanKey) cleanKey.style.setProperty('--c', plate ? rgb(plateCol[0], plateCol[1], plateCol[2]) : 'var(--flat)');
     col = ['--critical', '--high', '--medium', '--low', '--unknown'].map((v) => toRGB(cs.getPropertyValue(v).trim(), fg)).concat([flat]);
     if (entered) kick(); else draw();
   };
 
+  const width = (e) => lerp(.78, .86, e);
   const extent = (cam, e, full) => {
-    const w = lerp(.78, .9, e), off = (1 - w) / 2;
+    const w = width(e), off = (1 - w) / 2;
     let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
     const add = (x, y, z) => { const px = x * cam.cs - y * cam.sn, py = (x * cam.sn + y * cam.cs) * cam.se - z * cam.ce; if (px < a) a = px; if (px > b) b = px; if (py < c) c = py; if (py > d) d = py; };
     for (let i = 0; i < n; i++) {
       const x0 = wk[i] + off, y0 = dy[i] + off, z = full ? hgt[i] * e : zs[i];
       add(x0, y0, z); add(x0 + w, y0, z); add(x0, y0 + w, z); add(x0 + w, y0 + w, 0); add(x0, y0 + w, 0); add(x0 + w, y0, 0);
     }
+    if (plate) { add(-PAD, -PAD, 0); add(C + PAD, -PAD, 0); add(-PAD, R + PAD, 0); add(C + PAD, R + PAD, 0); }
     return { minx: a, maxx: b, miny: c, maxy: d };
   };
 
+  // Bigger cells when there are few packages, so a small risky set fills the stage.
+  const cap2 = n < 40 ? 64 : 44, cap3 = n < 40 ? 104 : 72;
   const relayout = () => {
     const w = Math.round(stage.clientWidth);
     if (!w) return;
     W = w; dpr = Math.min(2, devicePixelRatio || 1);
     const b2 = extent(camera(0, 0, 0), 0, true), bw2 = b2.maxx - b2.minx, bh2 = b2.maxy - b2.miny;
-    H2 = Math.max(56, bh2 * Math.min((W - 8) / bw2, 44) + 8);
+    H2 = Math.max(80, Math.min(bh2 * Math.min((W - 8) / bw2, cap2) + 8, 460));
     const b3 = extent(camera(1, 0, 0), 1, true), bw3 = b3.maxx - b3.minx, bh3 = b3.maxy - b3.miny;
-    H3 = Math.max(Math.min(bh3 * Math.min((W - 40) / bw3, 70) + 40, W * .62, 520), Math.min(240, W * .7));
+    H3 = Math.max(Math.min(bh3 * Math.min((W - 40) / bw3, cap3) + 40, W * .66, 560), Math.min(260, W * .75));
     Hmax = Math.ceil(Math.max(H2, H3));
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(Hmax * dpr);
     canvas.style.width = W + 'px'; canvas.style.height = Hmax + 'px';
     lastH = -1; draw();
   };
 
-  const rise = (i) => easeOut((t - ((cols > 1 ? wk[i] / (cols - 1) : 0) * .36 + (R > 1 ? dy[i] / (R - 1) : 0) * .06)) / .58);
+  const rise = (i) => easeOut((t - ((wk[i] + dy[i]) / diag) * .4) / .58);
+
+  const face = (p, o, r, fill) => { ctx.beginPath(); quad(ctx, p, o, r); ctx.fillStyle = fill; ctx.fill(); };
 
   const draw = () => {
     if (!W || !col.length) return;
     const e = easeInOut(t), cam = camera(e, yaw, elev), Hc = lerp(H2, H3, e);
     if (Math.abs(Hc - lastH) > .2) { stage.style.height = Hc.toFixed(1) + 'px'; lastH = Hc; }
     for (let i = 0; i < n; i++) zs[i] = rise(i) * hgt[i];
-    const b = extent(cam, e, false), pad = lerp(4, 22, e);
+    const b = extent(cam, e, false), pad = lerp(6, 24, e);
     const aw = W - 2 * pad, ah = Hc - 2 * pad, bw = Math.max(1e-6, b.maxx - b.minx), bh = Math.max(1e-6, b.maxy - b.miny);
-    const s = Math.min(aw / bw, ah / bh, lerp(44, 70, e));
+    const s = Math.min(aw / bw, ah / bh, lerp(cap2, cap3, e));
     const ox = pad + (aw - bw * s) / 2 - b.minx * s, oy = pad + (ah - bh * s) / 2 - b.miny * s;
     const { cs, sn, se, ce } = cam;
     const px = (x, y) => ox + (x * cs - y * sn) * s, py = (x, y, z) => oy + ((x * sn + y * cs) * se - z * ce) * s;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, Hmax);
+
+    // The platform goes first: everything stands on it.
+    if (plate) {
+      const x0 = -PAD, y0 = -PAD, x1 = C + PAD, y1 = R + PAD, z = PLATE_H * e, p = platePoly;
+      p[0] = px(x0, y0); p[1] = py(x0, y0, z); p[2] = px(x1, y0); p[3] = py(x1, y0, z);
+      p[4] = px(x1, y1); p[5] = py(x1, y1, z); p[6] = px(x0, y1); p[7] = py(x0, y1, z);
+      p[8] = px(x0, y1); p[9] = py(x0, y1, 0); p[10] = px(x1, y1); p[11] = py(x1, y1, 0); p[12] = p[4]; p[13] = p[5]; p[14] = p[6]; p[15] = p[7];
+      p[16] = px(x1, y0); p[17] = py(x1, y0, 0); p[18] = p[10]; p[19] = p[11]; p[20] = p[4]; p[21] = p[5]; p[22] = p[2]; p[23] = p[3];
+      const [r, g, bl] = plateCol, hl = active === PLATE ? .12 : 0;
+      const mix = (c, k) => c + (fg[k === 0 ? 0 : k === 1 ? 1 : 2] - c) * hl;
+      if (z * ce * s > .5) {
+        face(p, 8, 0, rgb(mix(r, 0) * .82, mix(g, 1) * .82, mix(bl, 2) * .82));
+        face(p, 16, 0, rgb(mix(r, 0) * .64, mix(g, 1) * .64, mix(bl, 2) * .64));
+      }
+      ctx.beginPath(); quad(ctx, p, 0, lerp(.35, .12, e) * s); ctx.fillStyle = rgb(mix(r, 0), mix(g, 1), mix(bl, 2)); ctx.fill();
+      ctx.strokeStyle = 'rgba(' + fg[0] + ',' + fg[1] + ',' + fg[2] + ',' + (active === PLATE ? .7 : .08) + ')'; ctx.lineWidth = active === PLATE ? 1.5 : 1; ctx.stroke();
+    }
+
     order.sort((a, c) => (wk[a] + .5) * sn + (dy[a] + .5) * cs - ((wk[c] + .5) * sn + (dy[c] + .5) * cs));
-    const w = lerp(.78, .9, e), off = (1 - w) / 2, radius = lerp(.17, .03, e) * s, outline = (1 - e) * .06, lift = .7 * e;
+    const w = width(e), off = (1 - w) / 2, radius = lerp(.17, .03, e) * s, outline = (1 - e) * .06, lift = .7 * e;
+    const base = plate ? PLATE_H * e : 0;
+    const glow = n <= 150 && e > .5;
     const flat = col[5];
     for (let k = 0; k < n; k++) {
-      const i = order[k], x0 = wk[i] + off, y0 = dy[i] + off, x1 = x0 + w, y1 = y0 + w, z = zs[i] + hover[i] * lift, o = i * 24;
+      const i = order[k], x0 = wk[i] + off, y0 = dy[i] + off, x1 = x0 + w, y1 = y0 + w, z = base + zs[i] + hover[i] * lift, o = i * 24;
       polys[o] = px(x0, y0); polys[o + 1] = py(x0, y0, z); polys[o + 2] = px(x1, y0); polys[o + 3] = py(x1, y0, z);
       polys[o + 4] = px(x1, y1); polys[o + 5] = py(x1, y1, z); polys[o + 6] = px(x0, y1); polys[o + 7] = py(x0, y1, z);
-      polys[o + 8] = px(x0, y1); polys[o + 9] = py(x0, y1, 0); polys[o + 10] = px(x1, y1); polys[o + 11] = py(x1, y1, 0);
+      polys[o + 8] = px(x0, y1); polys[o + 9] = py(x0, y1, base); polys[o + 10] = px(x1, y1); polys[o + 11] = py(x1, y1, base);
       polys[o + 12] = polys[o + 4]; polys[o + 13] = polys[o + 5]; polys[o + 14] = polys[o + 6]; polys[o + 15] = polys[o + 7];
-      polys[o + 16] = px(x1, y0); polys[o + 17] = py(x1, y0, 0); polys[o + 18] = polys[o + 10]; polys[o + 19] = polys[o + 11];
+      polys[o + 16] = px(x1, y0); polys[o + 17] = py(x1, y0, base); polys[o + 18] = polys[o + 10]; polys[o + 19] = polys[o + 11];
       polys[o + 20] = polys[o + 4]; polys[o + 21] = polys[o + 5]; polys[o + 22] = polys[o + 2]; polys[o + 23] = polys[o + 3];
-      const tall = z * ce * s;
+      const tall = (z - base) * ce * s;
       let f = 0; if (tall > .35 && w * cs * s > .35) f |= 1; if (tall > .35 && w * sn * s > .35) f |= 2; faces[i] = f;
       const c = col[lv[i]];
       let r = c[0], g = c[1], bl = c[2];
@@ -718,17 +1264,25 @@ function startSky() {
       if (d > .002) { r += (flat[0] - r) * .78 * d; g += (flat[1] - g) * .78 * d; bl += (flat[2] - bl) * .78 * d; }
       const hv = hover[i];
       if (hv > .002) { const m2 = .18 * hv; r += (fg[0] - r) * m2; g += (fg[1] - g) * m2; bl += (fg[2] - bl) * m2; }
-      if (f & 1) { ctx.beginPath(); quad(ctx, polys, o + 8, 0); ctx.fillStyle = rgb(r * .84, g * .84, bl * .84); ctx.fill(); }
-      if (f & 2) { ctx.beginPath(); quad(ctx, polys, o + 16, 0); ctx.fillStyle = rgb(r * .66, g * .66, bl * .66); ctx.fill(); }
+      if (f & 1) face(polys, o + 8, 0, rgb(r * .84, g * .84, bl * .84));
+      if (f & 2) face(polys, o + 16, 0, rgb(r * .66, g * .66, bl * .66));
+      // Critical and high towers glow like signs at night.
+      if (glow && lv[i] <= 1 && d < .5) { ctx.shadowColor = rgb(c[0], c[1], c[2]); ctx.shadowBlur = 18 * e * (1 - d); }
       ctx.beginPath(); quad(ctx, polys, o, radius); ctx.fillStyle = rgb(r, g, bl); ctx.fill();
+      ctx.shadowBlur = 0;
       if (outline > .004) { ctx.strokeStyle = 'rgba(' + fg[0] + ',' + fg[1] + ',' + fg[2] + ',' + outline.toFixed(3) + ')'; ctx.lineWidth = 1; ctx.stroke(); }
       if (hv > .02) { ctx.strokeStyle = 'rgba(' + fg[0] + ',' + fg[1] + ',' + fg[2] + ',' + (.85 * hv).toFixed(3) + ')'; ctx.lineWidth = 1.5; ctx.stroke(); }
     }
     if (active >= 0) {
-      const i = active, z = zs[i] + hover[i] * lift, rc = canvas.getBoundingClientRect();
+      const i = active, z = base + zs[i] + hover[i] * lift, rc = canvas.getBoundingClientRect();
       const tx = px(wk[i] + .5, dy[i] + .5), ty = Math.min(py(wk[i] + off, dy[i] + off, z), py(wk[i] + off + w, dy[i] + off, z), py(wk[i] + off, dy[i] + off + w, z));
       tip.style.left = Math.min(Math.max(rc.left + tx, 130), innerWidth - 130) + 'px';
       tip.style.top = (rc.top + ty) + 'px';
+    } else if (active === PLATE) {
+      const rc = canvas.getBoundingClientRect();
+      // Anchor to the platform's front corner, below the towers.
+      tip.style.left = Math.min(Math.max(rc.left + platePoly[10], 150), innerWidth - 150) + 'px';
+      tip.style.top = (rc.top + platePoly[11] + 58) + 'px';
     }
   };
 
@@ -757,19 +1311,26 @@ function startSky() {
     return g.dep.Name + '@' + g.dep.Version + ': ' + (g.advs.length ? plural(g.advs.length, 'advisory', 'advisories') + ', worst ' + SEV[g.worst].label.toLowerCase() + (g.fixTo ? ', upgrade to ' + g.fixTo : '') : 'no known issues');
   };
   const showTip = () => {
-    if (active < 0) { tip.classList.remove('on'); return; }
-    const g = items[active];
-    tip.innerHTML = '<span class="mono">' + esc(g.dep.Name) + '<span style="opacity:.6">@' + esc(g.dep.Version) + '</span></span><br>' +
-      (g.advs.length ? plural(g.advs.length, 'advisory', 'advisories') + ', worst ' + SEV[g.worst].label.toLowerCase() + (g.fixTo ? '. Upgrade to ' + esc(g.fixTo) : '') : 'No known issues');
+    if (active === -1) { tip.classList.remove('on'); return; }
+    if (active === PLATE) {
+      tip.innerHTML = '<b>' + cleanCount + '</b> ' + (cleanCount === 1 ? 'package' : 'packages') + ' with no known issues<br><span style="opacity:.7">Click to show every package</span>';
+    } else {
+      const g = items[active];
+      tip.innerHTML = '<span class="mono">' + esc(g.dep.Name) + '<span style="opacity:.6">@' + esc(g.dep.Version) + '</span></span><br>' +
+        (g.advs.length ? plural(g.advs.length, 'advisory', 'advisories') + ', worst ' + SEV[g.worst].label.toLowerCase() + (g.fixTo ? '. Upgrade to ' + esc(g.fixTo) : '') : 'No known issues');
+    }
     tip.classList.add('on'); draw();
   };
-  const refresh = () => { const next = hovered >= 0 ? hovered : pinned; if (next === active) return; active = next; showTip(); kick(); };
+  const refresh = () => { const next = hovered !== -1 ? hovered : pinned; if (next === active) return; active = next; showTip(); kick(); };
   const hit = (x, y) => {
     for (let k = n - 1; k >= 0; k--) { const i = order[k], o = i * 24; if (inQuad(polys, o, x, y) || (faces[i] & 1 && inQuad(polys, o + 8, x, y)) || (faces[i] & 2 && inQuad(polys, o + 16, x, y))) return i; }
+    if (plate && (inQuad(platePoly, 0, x, y) || inQuad(platePoly, 8, x, y) || inQuad(platePoly, 16, x, y))) return PLATE;
     return -1;
   };
   const local = (ev) => { const r = canvas.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+  const setMode = (m) => { if (ui.skyMode === m) return; ui.skyMode = m; ui.skyModeSet = true; tip.classList.remove('on'); syncModeButtons(); startSky(); };
   const goTo = (i) => {
+    if (i === PLATE) { setMode('all'); return; }
     const g = items[i]; tip.classList.remove('on');
     if (g.status === 'clean') { ui.depQ = g.dep.Name; setTab('deps'); }
     else { if (g.status === 'allowed') ui.showAllowed = true; ui.q = g.dep.Name; ui.open = new Set([g.key]); setTab('fixes'); }
@@ -796,7 +1357,7 @@ function startSky() {
     if (ev.pointerType !== 'mouse') return;
     const [x, y] = local(ev), i = hit(x, y);
     if (i !== hovered) { hovered = i; refresh(); }
-    canvas.style.cursor = i >= 0 ? 'pointer' : target === 1 ? 'grab' : 'default';
+    canvas.style.cursor = i !== -1 ? 'pointer' : target === 1 ? 'grab' : 'default';
   });
   on(canvas, 'pointerup', (ev) => {
     if (!drag || ev.pointerId !== drag.id) return;
@@ -805,30 +1366,33 @@ function startSky() {
     canvas.style.cursor = target === 1 ? 'grab' : 'default';
     if (moved) return;
     const [x, y] = local(ev), i = hit(x, y);
-    if (i < 0) { pinned = -1; refresh(); return; }
+    if (i === -1) { pinned = -1; refresh(); return; }
     if (ev.pointerType === 'mouse' || pinned === i) goTo(i);
     else { pinned = i; hovered = -1; refresh(); }
   });
   on(canvas, 'pointercancel', () => { drag = null; });
   on(canvas, 'pointerleave', () => { if (!drag) { hovered = -1; refresh(); } });
   on(canvas, 'dblclick', () => { yawGoal = 0; elevGoal = 0; kick(); });
+  // Arrow keys move by grid position, not list order, because the layout is diagonal.
   on(canvas, 'keydown', (ev) => {
     const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Escape', 'Enter', ' '];
     if (!keys.includes(ev.key) || !n) return;
     ev.preventDefault();
     if (ev.key === 'Escape') { pinned = hovered = -1; refresh(); return; }
-    let i = active >= 0 ? active : 0;
     if (ev.key === 'Enter' || ev.key === ' ') { if (active >= 0) goTo(active); return; }
+    let i = active >= 0 ? active : 0;
     if (active >= 0) {
-      if (ev.key === 'ArrowLeft') i -= R; if (ev.key === 'ArrowRight') i += R;
-      if (ev.key === 'ArrowUp') i -= 1; if (ev.key === 'ArrowDown') i += 1;
-      if (ev.key === 'Home') i = 0; if (ev.key === 'End') i = n - 1;
+      let x = wk[i], y = dy[i];
+      if (ev.key === 'ArrowLeft') x--; if (ev.key === 'ArrowRight') x++;
+      if (ev.key === 'ArrowUp') y--; if (ev.key === 'ArrowDown') y++;
+      if (ev.key === 'Home') i = 0; else if (ev.key === 'End') i = n - 1;
+      else if (at.has(x + ',' + y)) i = at.get(x + ',' + y);
     }
-    pinned = Math.max(0, Math.min(n - 1, i)); hovered = -1; refresh();
+    pinned = i; hovered = -1; refresh();
     $('skyLive').textContent = describe(pinned);
   });
   on(canvas, 'blur', () => { pinned = -1; refresh(); });
-  on(window, 'scroll', () => { if (active >= 0) { hovered = -1; pinned = -1; refresh(); } }, { passive: true });
+  on(window, 'scroll', () => { if (active !== -1) { hovered = -1; pinned = -1; refresh(); } }, { passive: true });
 
   const toggle = $('viewToggle');
   const setView = (v) => {
@@ -841,12 +1405,17 @@ function startSky() {
     kick();
   };
   on(toggle, 'click', (e) => { const b = e.target.closest('button'); if (b) setView(b.dataset.v); });
+  const modeBox = $('skyMode');
+  const syncModeButtons = () => { if (modeBox) modeBox.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === ui.skyMode))); };
+  if (modeBox) on(modeBox, 'click', (e) => { const b = e.target.closest('button'); if (b) setMode(b.dataset.m); });
 
   const keys = $('skyKeys');
   on(keys, 'mouseover', (e) => { const b = e.target.closest('.key'); if (b) { legendLevel = +b.dataset.l; kick(); } });
   on(keys, 'mouseleave', () => { legendLevel = -1; kick(); });
   on(keys, 'click', (e) => {
     const b = e.target.closest('.key'); if (!b) return;
+    // The clean colour lives on the platform in Risky mode; show every package to highlight it.
+    if (+b.dataset.l === rank('NONE') && focus) { setMode('all'); return; }
     legendSticky = legendSticky === +b.dataset.l ? -1 : +b.dataset.l;
     keys.querySelectorAll('.key').forEach((k) => k.setAttribute('aria-pressed', String(+k.dataset.l === legendSticky)));
     kick();
@@ -856,15 +1425,18 @@ function startSky() {
   on(matchMedia('(prefers-color-scheme: dark)'), 'change', retheme);
   const ro = new ResizeObserver(() => { if (Math.round(stage.clientWidth) !== W) relayout(); });
   ro.observe(stage);
-  // The skyline rises out of the flat map the first time it is on screen.
   const io = new IntersectionObserver((en) => {
     if (en.some((x) => x.isIntersecting) && !entered) { entered = true; if (reduced) t = 1; kick(); io.disconnect(); }
   }, { threshold: .3 });
-  target = 0; retheme(); relayout(); target = 1;
-  io.observe(stage);
-  canvas.style.cursor = 'grab';
+  const keepTarget = target;
+  target = 0; retheme(); relayout(); target = keepTarget;
+  setView(target ? '3d' : '2d');
+  if (entered) kick(); else io.observe(stage);
 
-  sky = { destroy() { if (raf) cancelAnimationFrame(raf); ac.abort(); ro.disconnect(); io.disconnect(); tip.classList.remove('on'); sky = null; } };
+  sky = {
+    state() { return { t, target }; },
+    destroy() { if (raf) cancelAnimationFrame(raf); ac.abort(); ro.disconnect(); io.disconnect(); tip.classList.remove('on'); sky = null; }
+  };
 }
 
 function setTab(id) {
@@ -1067,6 +1639,154 @@ function exportJSON() {
   toast('Exported report');
 }
 
+/* ---------- walkthrough ----------
+   One slide is "on" at a time. Its CSS animations start when the class is
+   added, so revisiting a slide replays its scene. Autoplay only runs while
+   the section is on screen, stops for good once the viewer takes over, and
+   never runs with reduced motion. */
+function initTour() {
+  const root = $('tour'), track = $('tourTrack'), frame = $('tourFrame'), viewport = $('tourViewport');
+  if (!root) return;
+  const slides = Array.from(track.children), n = slides.length;
+  const segs = $('tourSegs'), count = $('tourCount'), prev = $('tourPrev'), next = $('tourNext'), play = $('tourPlay');
+  const DUR = 7000;
+  const rmq = matchMedia('(prefers-reduced-motion: reduce)');
+  let i = 0, playing = false, userTookOver = false, run = 0;
+
+  segs.innerHTML = slides.map((s, k) =>
+    '<button class="seg-btn" type="button" role="tab" aria-label="Step ' + (k + 1) + ': ' + esc(s.dataset.title) + '"><span><i></i></span></button>').join('');
+  const segBtns = Array.from(segs.children);
+  root.style.setProperty('--dur', DUR + 'ms');
+  buildCity($('tourCity'));
+
+  // Types data-text into an element, one character at a time.
+  const type = (el, token, speed, delay) => {
+    const text = el.dataset.text || '';
+    if (rmq.matches) { el.textContent = text; return; }
+    el.textContent = '';
+    let k = 0;
+    const step = () => {
+      if (token !== run) return; // the viewer moved on
+      el.textContent = text.slice(0, ++k);
+      if (k < text.length) setTimeout(step, speed);
+    };
+    setTimeout(step, delay);
+  };
+
+  const go = (to, opts) => {
+    opts = opts || {};
+    i = Math.max(0, Math.min(n - 1, to));
+    run++;
+    track.style.transform = 'translateX(' + (-i * 100) + '%)';
+    slides.forEach((s, k) => {
+      const cur = k === i;
+      s.classList.remove('on');
+      s.setAttribute('aria-hidden', String(!cur));
+      s.inert = !cur;
+      s.setAttribute('aria-label', 'Step ' + (k + 1) + ' of ' + n);
+    });
+    void slides[i].offsetWidth; // restart this slide's animations
+    slides[i].classList.add('on');
+    segBtns.forEach((b, k) => {
+      b.classList.toggle('done', k < i);
+      b.classList.toggle('cur', k === i);
+      b.setAttribute('aria-selected', String(k === i));
+      b.tabIndex = k === i ? 0 : -1;
+    });
+    count.textContent = 'Step ' + (i + 1) + ' of ' + n;
+    prev.disabled = i === 0;
+    next.disabled = i === n - 1;
+    slides[i].querySelectorAll('.typed').forEach((el) => type(el, run, i === 0 ? 55 : 30, i === 0 ? 300 : 700));
+    // Restart the progress fill for the new step.
+    if (playing) { root.classList.remove('playing'); void root.offsetWidth; root.classList.add('playing'); }
+    if (opts.user) { userTookOver = true; setPlaying(false); }
+  };
+
+  const setPlaying = (on) => {
+    playing = on && !rmq.matches;
+    root.classList.toggle('playing', playing);
+    play.setAttribute('aria-pressed', String(playing));
+    play.querySelector('span').textContent = playing ? 'Pause' : 'Play';
+  };
+
+  // The current step's progress bar finishing is the clock for autoplay.
+  segs.addEventListener('animationend', (e) => {
+    if (!playing || !e.target.closest('.seg-btn.cur')) return;
+    if (i < n - 1) go(i + 1); else setPlaying(false);
+  });
+
+  play.addEventListener('click', () => {
+    if (playing) { userTookOver = true; setPlaying(false); return; }
+    if (i === n - 1) go(0);
+    setPlaying(true);
+    go(i); // restart the scene and the clock together
+  });
+  play.hidden = rmq.matches;
+  rmq.addEventListener('change', () => { play.hidden = rmq.matches; if (rmq.matches) setPlaying(false); });
+
+  prev.addEventListener('click', () => go(i - 1, { user: true }));
+  next.addEventListener('click', () => go(i + 1, { user: true }));
+  segs.addEventListener('click', (e) => { const b = e.target.closest('.seg-btn'); if (b) go(segBtns.indexOf(b), { user: true }); });
+
+  frame.addEventListener('keydown', (e) => {
+    const map = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: n - 1 };
+    if (!(e.key in map) || /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    e.preventDefault();
+    go(map[e.key], { user: true });
+    if (e.target.closest('.seg-btn')) segBtns[i].focus();
+  });
+
+  // Swipe on touch screens; vertical scrolling still works (touch-action: pan-y).
+  let sx = null, sy = 0;
+  viewport.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') { sx = e.clientX; sy = e.clientY; } });
+  viewport.addEventListener('pointerup', (e) => {
+    if (sx === null) return;
+    const dx = e.clientX - sx, dyy = e.clientY - sy; sx = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dyy) * 1.3) go(i + (dx < 0 ? 1 : -1), { user: true });
+  });
+  viewport.addEventListener('pointercancel', () => { sx = null; });
+
+  // Autoplay once the walkthrough is mostly on screen; pause when it scrolls away.
+  new IntersectionObserver((entries) => {
+    const visible = entries.some((en) => en.isIntersecting);
+    if (visible && !userTookOver && !playing && !rmq.matches) { setPlaying(true); go(i); }
+    else if (!visible && playing) setPlaying(false);
+  }, { threshold: .55 }).observe(frame);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && playing) setPlaying(false); });
+
+  $('tourCta').addEventListener('click', () => {
+    $('scanForm').scrollIntoView({ behavior: rmq.matches ? 'auto' : 'smooth', block: 'center' });
+    $('path').focus({ preventScroll: true });
+  });
+  go(0);
+}
+
+// Draws the step 6 city: isometric towers on a platform, riskiest at the back.
+function buildCity(svg) {
+  if (!svg) return;
+  const cw = 24, ox = 160, oy = 120, w = .78, off = (1 - w) / 2;
+  const P = (x, y, z) => (ox + (x - y) * cw * .866).toFixed(1) + ',' + (oy + (x + y) * cw * .5 - z * cw).toFixed(1);
+  const poly = (pts, fill) => '<polygon points="' + pts.join(' ') + '" style="fill:' + fill + '"/>';
+  const shade = (c, k) => 'color-mix(in srgb, ' + c + ' ' + k + '%, #000)';
+  const towers = [
+    [0, 0, 5.2, 'var(--critical)'], [1, 0, 3.6, 'var(--critical)'], [0, 1, 3.9, 'var(--high)'],
+    [2, 0, 2.4, 'var(--high)'], [1, 1, 2.8, 'var(--critical)'], [0, 2, 1.9, 'var(--medium)'],
+    [2, 1, 1.3, 'var(--medium)'], [1, 2, 1.1, 'var(--low)'], [2, 2, .7, 'var(--unknown)']
+  ];
+  const plate = 'color-mix(in srgb, var(--clean) 26%, var(--surface))';
+  let out = poly([P(-.4, -.4, 0), P(3.4, -.4, 0), P(3.4, 3.4, 0), P(-.4, 3.4, 0)], plate);
+  out += poly([P(-.4, 3.4, 0), P(3.4, 3.4, 0), P(3.4, 3.4, -.2), P(-.4, 3.4, -.2)], shade(plate, 80));
+  out += poly([P(3.4, -.4, 0), P(3.4, 3.4, 0), P(3.4, 3.4, -.2), P(3.4, -.4, -.2)], shade(plate, 64));
+  towers.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1])).forEach(([x, y, h, c], d) => {
+    const x0 = x + off, y0 = y + off, x1 = x0 + w, y1 = y0 + w;
+    out += '<g class="tw" style="--d:' + d + '">' +
+      poly([P(x0, y1, h), P(x1, y1, h), P(x1, y1, 0), P(x0, y1, 0)], shade(c, 84)) +
+      poly([P(x1, y0, h), P(x1, y1, h), P(x1, y1, 0), P(x1, y0, 0)], shade(c, 66)) +
+      poly([P(x0, y0, h), P(x1, y0, h), P(x1, y1, h), P(x0, y1, h)], c) + '</g>';
+  });
+  svg.innerHTML = out;
+}
+
 /* ---------- wiring ---------- */
 $('rootLabel').textContent = ROOT;
 $('rootLabel').title = ROOT;
@@ -1082,6 +1802,7 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('resize', () => { if (ui.model) { const a = document.querySelector('.tab[aria-selected="true"]'), bar = $('tabBar'); if (a && bar) { bar.style.width = a.offsetWidth + 'px'; bar.style.transform = 'translateX(' + a.offsetLeft + 'px)'; } } });
 renderRecent();
+initTour();
 </script>
 </body>
 </html>
