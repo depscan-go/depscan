@@ -17,9 +17,8 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "address to listen on")
-	// CHANGED (1): the only folder the API is allowed to scan
-	scanRoot := flag.String("scan-root", ".", "only folders inside this directory can be scanned via the API")
+	addr := flag.String("addr", "127.0.0.1:8080", "address to listen on (local only by default)")
+	scanRoot := flag.String("scan-root", "", "only folders inside this directory can be scanned (default: your home folder)")
 	policyFile := flag.String("policy", "policy.yaml", "path to policy.yaml")
 	flag.Parse()
 
@@ -29,8 +28,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// No -scan-root given: allow anything under the user's home folder,
+	// so local repos can be scanned without extra flags.
+	if *scanRoot == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cannot find home folder, pass -scan-root: %v\n", err)
+			os.Exit(1)
+		}
+		*scanRoot = home
+	}
+	log.Printf("scan root: %s", *scanRoot)
+
 	engine := scan.New(p)
-	// CHANGED (2): api.New now takes the scan root and can fail (e.g. folder doesn't exist)
 	handler, err := api.New(engine, *scanRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid -scan-root: %v\n", err)
@@ -55,7 +65,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("server listening on %s", *addr)
+		log.Printf("dashboard: http://%s", *addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
 		}
@@ -68,7 +78,6 @@ func main() {
 	log.Println("shutting down...")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	// CHANGED (3): don't ignore the error (golangci-lint errcheck flags this)
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
 	}
