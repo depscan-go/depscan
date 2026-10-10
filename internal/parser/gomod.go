@@ -30,21 +30,47 @@ func (p *GoModParser) Parse(r io.Reader) ([]model.Dependency, error) {
 	var deps []model.Dependency
 
 	for _, req := range f.Require {
-		// req.Mod.Path  = "github.com/gin-gonic/gin"
-		// req.Mod.Version = "v1.9.0"
-		// req.Indirect  = true if it's a transitive dependency
+		mod, ok := applyReplace(f.Replace, req.Mod.Path, req.Mod.Version)
+		if !ok {
 
-		// OSV.dev expects Go versions WITHOUT the "v" prefix.
-		// "v1.9.0" → "1.9.0"
-		version := strings.TrimPrefix(req.Mod.Version, "v")
+			continue
+		}
 
 		deps = append(deps, model.Dependency{
 			Ecosystem: "Go",
-			Name:      req.Mod.Path,
-			Version:   version,
-			Direct:    !req.Indirect,
+			Name:      mod.path,
+
+			Version: strings.TrimPrefix(mod.version, "v"),
+
+			Direct: !req.Indirect,
 		})
 	}
 
 	return deps, nil
+}
+
+type module struct{ path, version string }
+
+func applyReplace(replaces []*modfile.Replace, path, version string) (m module, ok bool) {
+	var match *modfile.Replace
+	for _, r := range replaces {
+		if r.Old.Path != path {
+			continue
+		}
+		if r.Old.Version == version {
+			match = r
+			break
+		}
+		if r.Old.Version == "" && match == nil {
+			match = r
+		}
+	}
+
+	if match == nil {
+		return module{path, version}, true
+	}
+	if match.New.Version == "" {
+		return module{}, false
+	}
+	return module{match.New.Path, match.New.Version}, true
 }
