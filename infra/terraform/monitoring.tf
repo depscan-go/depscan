@@ -1,4 +1,6 @@
-# Cost and error alerts. Emails go to whoever owns the subscription, so no address lives in the repo.
+# Cost and error alerts. Emails go to the subscription owner and to var.alert_emails.
+# Set alert_emails in terraform.tfvars (gitignored), so no address lives in the repo.
+# The owner alone isn't enough: a personal Microsoft account has no email in the directory.
 
 locals {
   owner_role_id = "8e3af657-a8ff-443c-a75c-2fe8c4bcb635" # built-in "Owner" role
@@ -19,6 +21,7 @@ resource "azurerm_consumption_budget_subscription" "monthly" {
     operator       = "GreaterThan"
     threshold_type = "Actual"
     contact_roles  = ["Owner"]
+    contact_emails = var.alert_emails
   }
 
   notification {
@@ -26,6 +29,7 @@ resource "azurerm_consumption_budget_subscription" "monthly" {
     operator       = "GreaterThan"
     threshold_type = "Actual"
     contact_roles  = ["Owner"]
+    contact_emails = var.alert_emails
   }
 
   # Warns before the money is gone, not after.
@@ -34,6 +38,7 @@ resource "azurerm_consumption_budget_subscription" "monthly" {
     operator       = "GreaterThan"
     threshold_type = "Forecasted"
     contact_roles  = ["Owner"]
+    contact_emails = var.alert_emails
   }
 }
 
@@ -47,6 +52,15 @@ resource "azurerm_monitor_action_group" "owners" {
     name                    = "subscription-owners"
     role_id                 = local.owner_role_id
     use_common_alert_schema = true
+  }
+
+  dynamic "email_receiver" {
+    for_each = var.alert_emails
+    content {
+      name                    = "email-${email_receiver.key}"
+      email_address           = email_receiver.value
+      use_common_alert_schema = true
+    }
   }
 }
 
