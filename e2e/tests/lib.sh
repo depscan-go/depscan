@@ -64,13 +64,49 @@ check() {
   if "$@" >/dev/null 2>&1; then ok "$name"; else bad "$name"; fi
 }
 
-# http METHOD URL [BODY]: sets CODE and RESP.
+# http METHOD URL [BODY [HEADER...]]: sets CODE and RESP.
+# BODY can be @file. It's sent as JSON unless a Content-Type header is given.
 http() {
-  local method=$1 url=$2 data=${3:-}
+  local method=$1 url=$2 data=${3:-} h json=1
+  shift $(($# < 3 ? $# : 3))
   local args=(-s -m 90 -o "$OUT/.http-body" -w '%{http_code}' -X "$method")
-  [ -z "$data" ] || args+=(-H 'Content-Type: application/json' --data-binary "$data")
+  for h in "$@"; do
+    args+=(-H "$h")
+    [[ ${h,,} == content-type:* ]] && json=0
+  done
+  if [ -n "$data" ]; then
+    [ "$json" = 0 ] || args+=(-H 'Content-Type: application/json')
+    args+=(--data-binary "$data")
+  fi
   CODE=$(curl "${args[@]}" "$url")
   RESP=$(cat "$OUT/.http-body" 2>/dev/null)
+}
+
+# check_dashboard URL: it's depscan's dashboard, and every asset the page links to loads.
+check_dashboard() {
+  local url=$1 assets a
+  expect_http "GET / (dashboard)" 200 GET "$url/"
+  if grep -qi '<title>depscan</title>' <<<"$RESP"; then ok "it's the depscan dashboard"; else bad "dashboard title not found"; fi
+  assets=$(grep -oE '/assets/[A-Za-z0-9._-]+' <<<"$RESP" | sort -u)
+  [ -n "$assets" ] || { bad "the dashboard links no /assets/ files"; return; }
+  for a in $assets; do expect_http "GET $a" 200 GET "$url$a"; done
+}
+
+# upload_json NAME PROJECT: the JSON the dashboard's folder picker sends for a sample
+# project, which is its lockfiles outside vendor/ and node_modules/.
+upload_json() {
+  python3 - "$1" "$PG/projects/$2" <<'PY'
+import json, os, sys
+name, root = sys.argv[1], sys.argv[2]
+files = []
+for d, dirs, names in os.walk(root):
+    dirs[:] = [x for x in dirs if x not in ("vendor", "node_modules", ".git")]
+    for n in names:
+        if n in ("go.mod", "package-lock.json"):
+            p = os.path.join(d, n)
+            files.append({"path": os.path.relpath(p, root).replace(os.sep, "/"), "content": open(p).read()})
+print(json.dumps({"name": name, "files": sorted(files, key=lambda f: f["path"])}))
+PY
 }
 
 # expect_http NAME WANT_CODE METHOD URL [BODY]
