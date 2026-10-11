@@ -2,5 +2,7 @@
 subscription_id = "<Azure for Students subscription id>"
 location        = "<a region allowed by sys.regionrestriction>"
 
-# Flip to true after: az keyvault secret set --vault-name <kv> -n database-url --value '<neon url>'
-wire_database_url = false
+# The app's secrets come from Key Vault (database-url, webhook-secret, github-token).
+# On a fresh setup, store them first, or switch them off here:
+# wire_database_url = false
+# enable_webhooks   = false

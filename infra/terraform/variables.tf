@@ -39,7 +39,13 @@ variable "app_port" {
 }
 
 variable "wire_database_url" {
-  description = "Copy the Key Vault secret 'database-url' into the app as DATABASE_URL. Set true only after that secret exists."
+  description = "Copy the Key Vault secret 'database-url' into the app as DATABASE_URL. The secret must exist before plan."
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "enable_webhooks" {
+  description = "Copy the Key Vault secrets 'webhook-secret' and 'github-token' into the app as DEPSCAN_WEBHOOK_SECRET and GITHUB_TOKEN, which turns on GitHub webhooks. Both secrets must exist before plan."
+  type        = bool
+  default     = true
 }

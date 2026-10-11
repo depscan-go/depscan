@@ -18,13 +18,13 @@ resource "azurerm_role_assignment" "me_kv_secrets_officer" {
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
-data "azurerm_key_vault_secret" "database_url" {
-  count        = var.wire_database_url ? 1 : 0
-  name         = "database-url"
+data "azurerm_key_vault_secret" "app" {
+  for_each     = local.app_secrets
+  name         = each.value
   key_vault_id = azurerm_key_vault.main.id
 }
 
-# Unused while the app gets DATABASE_URL as a copied secret; lets the server read Key Vault itself later.
+# Unused while the app gets its secrets as copies; lets the server read Key Vault itself later.
 resource "azurerm_role_assignment" "app_kv_secrets_user" {
   scope                = azurerm_key_vault.main.id
   role_definition_name = "Key Vault Secrets User"
