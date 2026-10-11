@@ -1,915 +1,805 @@
-/* DepScan dashboard: the Scan pane, the dependency skyline, and the router
-   that switches between Scan and How it works. */
-'use strict';
-const ROOT = String(window.DEPSCAN_ROOT || '');
-const SEP = ROOT.indexOf('\\') !== -1 ? '\\' : '/';
-const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN', 'NONE'];
-const SEV = {
-  CRITICAL: { label: 'Critical', c: 'var(--critical)', t: 'var(--critical-t)' },
-  HIGH:     { label: 'High',     c: 'var(--high)',     t: 'var(--high-t)' },
-  MEDIUM:   { label: 'Medium',   c: 'var(--medium)',   t: 'var(--medium-t)' },
-  LOW:      { label: 'Low',      c: 'var(--low)',      t: 'var(--low-t)' },
-  UNKNOWN:  { label: 'Unrated',  c: 'var(--unknown)',  t: 'var(--unknown-t)' },
-  NONE:     { label: 'No known issues', c: 'var(--clean)', t: 'var(--clean-t)' }
-};
-const STATUS = { block: 'Blocks the build', warn: 'Warning', allowed: 'Allowed by policy' };
-const PAGE = 40;
+/* depscan dashboard: routing, the scan flow (folder picker, drag and drop,
+   path), the live survey while a scan runs, and the History and Policy pages.
+   Results are drawn by results.js; history is kept by store.js. */
+(function () {
+  'use strict';
+  const DS = window.DS;
+  const { $, esc, plural, fmtN, fmtBytes, fmtMs, ago, when, toast, download, icon, codeBlock, reduced } = DS;
+  const ROOT = DS.ROOT;
+  const SEP = ROOT.indexOf('\\') !== -1 ? '\\' : '/';
+  const app = { route: '', policy: null, policyErr: '', scanning: null, entry: null };
 
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const sevOf = (s) => { s = String(s || '').toUpperCase(); if (s === 'MODERATE') return 'MEDIUM'; return SEV[s] ? s : 'UNKNOWN'; };
-const rank = (s) => SEVS.indexOf(s);
-const plural = (n, one, many) => n + ' ' + (n === 1 ? one : (many || one + 's'));
-const words = (s) => String(s).split(' ').map((w, i) => '<span class="w"><span style="--i:' + i + '">' + esc(w) + '</span></span>').join(' ');
-const nv = (v) => String(v).replace(/^v/, '');
-
-let ui = { model: null, record: null, tab: 'fixes', q: '', showAllowed: false, shown: PAGE, depFilter: 'all', depQ: '', depShown: 60, open: new Set() };
-let controller = null, timer = null;
-
-/* ---------- storage (optional; the page works without it) ---------- */
-function loadRecent() { try { return JSON.parse(localStorage.getItem('depscan.recent') || '[]'); } catch (e) { return []; } }
-function saveRecent(p) {
-  const list = [p].concat(loadRecent().filter((x) => x !== p)).slice(0, 6);
-  try { localStorage.setItem('depscan.recent', JSON.stringify(list)); } catch (e) {}
-  renderRecent();
-}
-function renderRecent() {
-  const list = loadRecent();
-  $('recent').innerHTML = list.length ? '<span>Recent</span>' + list.map((p) => '<button class="chip" type="button" title="' + esc(p) + '" data-path="' + esc(p) + '">' + esc(shortPath(p)) + '</button>').join('') : '';
-}
-function shortPath(p) {
-  const parts = p.split(/[\\/]/).filter(Boolean);
-  return parts.length > 2 ? '…' + SEP + parts.slice(-2).join(SEP) : p;
-}
-
-/* ---------- model ---------- */
-function depKey(d) { return d.Ecosystem + '|' + d.Name + '@' + d.Version; }
-function cmpVer(a, b) {
-  const pa = String(a).split(/[.+-]/), pb = String(b).split(/[.+-]/);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] || '0', y = pb[i] || '0';
-    const nx = /^\d+$/.test(x), ny = /^\d+$/.test(y);
-    const c = nx && ny ? (parseInt(x, 10) - parseInt(y, 10)) : x.localeCompare(y);
-    if (c) return c;
+  /* ================================================================ server */
+  async function getJSON(url, opts) {
+    const res = await fetch(url, Object.assign({ cache: 'no-store' }, opts || {}));
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* not JSON */ }
+    return { res, data };
   }
-  return 0;
-}
-function upgradeCmd(dep, v) {
-  if (dep.Ecosystem === 'npm') return 'npm install ' + dep.Name + '@' + v;
-  if (dep.Ecosystem === 'Go') return 'go get ' + dep.Name + '@v' + v.replace(/^v/, '');
-  return dep.Name + '@' + v;
-}
-
-function buildModel(record) {
-  const r = record.result || {};
-  const deps = r.Deps || [], findings = r.Findings || [];
-  const viol = r.Violations || [], warns = r.Warnings || [];
-  const tag = (list) => new Set(list.filter((v) => v.Kind === 'vulnerability').map((v) => depKey(v.Dep) + '#' + String(v.Reason).split(' ')[0]));
-  const blockSet = tag(viol), warnSet = tag(warns);
-
-  const groups = new Map();
-  for (const d of deps) groups.set(depKey(d), { dep: d, advs: [] });
-  for (const f of findings) {
-    const k = depKey(f.Dep);
-    if (!groups.has(k)) groups.set(k, { dep: f.Dep, advs: [] });
-    const id = k + '#' + f.VulnID;
-    groups.get(k).advs.push({
-      id: f.VulnID, aliases: f.Aliases || [], sev: sevOf(f.Severity), summary: f.Summary, fixed: f.FixedVersion,
-      status: blockSet.has(id) ? 'block' : warnSet.has(id) ? 'warn' : 'allowed'
-    });
+  async function loadPolicy() {
+    try {
+      const { res, data } = await getJSON('/policy');
+      if (res.ok && data && data.digest) { app.policy = data; app.policyErr = ''; }
+      else { app.policy = null; app.policyErr = res.status === 404 ? 'This server does not expose GET /policy. Update it to see your rules here.' : 'The server answered ' + res.status + '.'; }
+    } catch (e) { app.policy = null; app.policyErr = 'The server is not reachable.'; }
+    return app.policy;
+  }
+  let health = { ok: null, ms: 0, at: 0 };
+  async function checkHealth() {
+    const t = performance.now();
+    try { const { res } = await getJSON('/healthz'); health = { ok: res.ok, ms: Math.round(performance.now() - t), at: Date.now() }; }
+    catch (e) { health = { ok: false, ms: 0, at: Date.now() }; }
+    const b = $('statusBtn');
+    b.classList.toggle('ok', health.ok === true); b.classList.toggle('down', health.ok === false);
+    $('statusText').textContent = health.ok ? 'Local server' : 'Server offline';
+    if (!$('statusPop').hidden) renderStatus();
+    return health.ok;
+  }
+  async function renderStatus() {
+    const n = (await DS.store.listScans()).length;
+    const pol = app.policy;
+    $('statusPop').innerHTML = '<h3>' + (health.ok ? 'Connected to your depscan server' : 'Cannot reach the depscan server') + '</h3><dl>' +
+      '<dt>Address</dt><dd class="mono">' + esc(location.host) + (health.ok ? ' <span class="chip" style="--c:var(--clean);--t:var(--clean-t)">' + health.ms + ' ms</span>' : '') + '</dd>' +
+      '<dt>Path scans</dt><dd>Folders inside <span class="mono">' + esc(ROOT || 'the scan root') + '</span></dd>' +
+      '<dt>Folder picker</dt><dd>Any folder on this computer</dd>' +
+      '<dt>Policy</dt><dd>' + (pol ? '<a class="xlink mono" href="#policy">' + esc(pol.digest.slice(0, 12)) + '</a>' : esc(app.policyErr || 'Loading')) + '</dd>' +
+      '<dt>History</dt><dd>' + plural(n, 'scan') + ' in this browser' + (DS.store.persistent ? '' : ', not kept after you close it') + '</dd></dl>' +
+      (health.ok ? '<p>The server only listens on this computer. Scans contact OSV.dev and deps.dev.</p>' : '<p>Start it from the project folder with <code>make run-server</code>, then reload this page.</p>');
   }
 
-  const list = [];
-  for (const [k, g] of groups) {
-    g.key = k;
-    g.advs.sort((a, b) => ['block', 'warn', 'allowed'].indexOf(a.status) - ['block', 'warn', 'allowed'].indexOf(b.status) || rank(a.sev) - rank(b.sev));
-    g.worst = g.advs.reduce((w, a) => rank(a.sev) < rank(w) ? a.sev : w, 'NONE');
-    g.status = g.advs.some((a) => a.status === 'block') ? 'block' : g.advs.some((a) => a.status === 'warn') ? 'warn' : g.advs.length ? 'allowed' : 'clean';
-    const active = g.advs.filter((a) => a.status !== 'allowed');
-    const pool = active.length ? active : g.advs;
-    const fixes = pool.map((a) => a.fixed).filter(Boolean);
-    g.fixTo = fixes.length ? fixes.sort(cmpVer)[fixes.length - 1] : '';
-    g.unfixed = pool.filter((a) => !a.fixed).length;
-    list.push(g);
+  /* ================================================================ theme and motion */
+  const THEMES = ['system', 'dark', 'light'];
+  function applyTheme(mode) {
+    const d = document.documentElement;
+    if (mode === 'system') d.removeAttribute('data-theme'); else d.setAttribute('data-theme', mode);
+    try { if (mode === 'system') localStorage.removeItem('depscan.theme'); else localStorage.setItem('depscan.theme', mode); } catch (e) { /* storage blocked */ }
+    const b = $('themeBtn'); b.dataset.mode = mode;
+    b.setAttribute('aria-label', 'Theme: ' + (mode === 'system' ? 'match the system' : mode) + '. Click to change.');
+    b.title = b.getAttribute('aria-label');
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = getComputedStyle(d).getPropertyValue('--bg').trim() || '#06080b';
   }
-  const licenses = viol.filter((v) => v.Kind === 'license').map((v) => ({ dep: v.Dep, reason: v.Reason, status: 'block' }))
-    .concat(warns.filter((v) => v.Kind === 'license').map((v) => ({ dep: v.Dep, reason: v.Reason, status: 'warn' })));
-
-  return {
-    deps, findings, groups: list, licenses,
-    blockPkgs: list.filter((g) => g.status === 'block').length,
-    warnPkgs: list.filter((g) => g.status === 'warn').length,
-    vulnPkgs: list.filter((g) => g.advs.length).length,
-    blocked: viol.length > 0
-  };
-}
-
-/* ---------- scanning ---------- */
-async function runScan(path) {
-  path = (path || $('path').value).trim();
-  if (!path) { $('path').focus(); return; }
-  $('path').value = path;
-  if (controller) controller.abort();
-  controller = new AbortController();
-
-  $('intro').hidden = true; $('result').hidden = true; $('error').innerHTML = '';
-  $('loading').hidden = false; $('loadingPath').textContent = shortPath(path);
-  $('runBtn').disabled = true;
-  const t0 = performance.now();
-  timer = setInterval(() => { $('elapsed').textContent = ((performance.now() - t0) / 1000).toFixed(1) + 's'; }, 100);
-
-  try {
-    const res = await fetch('/scans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }), signal: controller.signal });
-    let data;
-    try { data = await res.json(); } catch (e) { throw new Error('The server answered with ' + res.status + ' and no JSON body.'); }
-    if (data.error) { showError(data.error, path); return; }
-    data._ms = performance.now() - t0;
-    saveRecent(path);
-    render(data);
-  } catch (e) {
-    if (e.name === 'AbortError') { $('intro').hidden = false; toast('Scan cancelled'); }
-    else showError(e.message, path);
-  } finally {
-    clearInterval(timer); $('elapsed').textContent = '';
-    $('loading').hidden = true; $('runBtn').disabled = false; controller = null;
-  }
-}
-
-function showError(msg, path) {
-  let title = 'The scan did not finish', body = esc(msg);
-  if (/scan root/.test(msg)) {
-    title = 'That folder is outside the scan root';
-    body = 'DepScan only scans folders inside <code>' + esc(ROOT) + '</code>. Pick a project in there, or restart the server with <code>-scan-root</code> pointing at a parent folder.';
-  } else if (/no such file|cannot find|not find|does not exist/i.test(msg)) {
-    title = 'Folder not found';
-    body = 'Nothing exists at <code>' + esc(path) + '</code>. Check the spelling, or paste the full path.';
-  } else if (/OSV|querybatch|dial|timeout/i.test(msg)) {
-    title = 'Could not reach OSV.dev';
-    body = 'The vulnerability database did not respond. Check your connection and scan again.<br><code>' + esc(msg) + '</code>';
-  }
-  $('error').innerHTML = '<div class="alert appear" role="alert"><b>' + title + '</b><p>' + body + '</p></div>';
-}
-
-/* ---------- rendering ---------- */
-function render(record) {
-  if (sky) sky.destroy();
-  ui.skyModeSet = false;
-  ui.record = record; ui.model = buildModel(record); ui.sky = null;
-  $('intro').hidden = true; $('error').innerHTML = '';
-  ui.q = ''; ui.shown = PAGE; ui.depQ = ''; ui.depShown = 60; ui.depFilter = 'all'; ui.open = new Set();
-  const m = ui.model;
-  ui.tab = m.blockPkgs || m.warnPkgs ? 'fixes' : m.licenses.length ? 'licenses' : 'deps';
-
-  let state, color, headline, sub;
-  if (!m.deps.length) {
-    state = 'Nothing to scan'; color = 'var(--unknown-t)';
-    headline = 'No lockfiles found in this folder';
-    sub = 'DepScan looks for <code>go.mod</code> and <code>package-lock.json</code> (npm 7 or newer). Other lockfiles are skipped.';
-  } else if (m.blocked) {
-    state = 'Blocked'; color = 'var(--critical-t)';
-    headline = 'This build would be blocked';
-    sub = plural(m.blockPkgs, 'package') + ' ' + (m.blockPkgs === 1 ? 'has' : 'have') + ' vulnerabilities your policy does not allow' + (m.licenses.some((l) => l.status === 'block') ? ', and some licenses are denied' : '') + '. Upgrade them to pass.';
-  } else if (m.warnPkgs || m.licenses.length) {
-    state = 'Passes with warnings'; color = 'var(--medium-t)';
-    headline = 'Passes, with ' + plural(m.warnPkgs || m.licenses.length, 'package') + ' to review';
-    sub = 'Nothing breaks your policy, but these are worth upgrading before they become blocking.';
-  } else {
-    state = 'Passes'; color = 'var(--clean-t)';
-    headline = m.vulnPkgs ? 'Passes your policy' : 'No known vulnerabilities';
-    sub = m.vulnPkgs ? plural(m.vulnPkgs, 'package') + ' ' + (m.vulnPkgs === 1 ? 'has' : 'have') + ' advisories below your policy threshold.' : 'Every dependency was checked against OSV.dev.';
+  function applyMotion(on) {
+    document.documentElement.classList.toggle('still', !on);
+    const b = $('motionBtn'); b.setAttribute('aria-pressed', String(!on));
+    b.setAttribute('aria-label', on ? 'Pause background motion' : 'Play background motion'); b.title = b.getAttribute('aria-label');
+    try { localStorage.setItem('depscan.motion', on ? 'on' : 'off'); } catch (e) { /* storage blocked */ }
+    DS.field.setMotion(on);
   }
 
-  const direct = m.deps.filter((d) => d.Direct).length;
-  const secs = record._ms ? (record._ms / 1000).toFixed(1) + 's' : '—';
-  const html =
-    '<div class="verdict appear">' +
-      '<div><div class="state fade" style="--sc:' + color + '">' + state + '</div><h2 class="words">' + words(headline) + '</h2>' +
-      '<p class="sub fade" style="--d:380ms">' + sub + ' <span class="mono" style="font-size:13px">' + esc(record.path) + '</span></p></div>' +
-      '<div class="actions fade" style="--d:450ms"><button class="ghost" type="button" id="exportBtn">Export JSON</button></div>' +
-    '</div>' +
-    (m.deps.length ? skyHTML(m) : '') +
-    '<dl class="facts">' +
-      fact('Dependencies', m.deps.length, false, 'dependency') + fact('Direct', direct, false, 'transitive') + fact('With advisories', m.vulnPkgs, false, 'advisory') +
-      fact('Blocking', m.blockPkgs, m.blockPkgs > 0) + fact('Scan time', secs) +
-    '</dl>' +
-    '<div class="tabs" role="tablist" id="tabs">' +
-      tabBtn('fixes', 'Fixes', m.blockPkgs + m.warnPkgs) +
-      (m.licenses.length ? tabBtn('licenses', 'Licenses', m.licenses.length) : '') +
-      tabBtn('deps', 'All dependencies', m.deps.length) +
-      tabBtn('history', 'History', '') +
-      '<span class="bar" id="tabBar"></span>' +
-    '</div>' +
-    '<div id="panel"></div>';
-
-  const res = $('result');
-  res.innerHTML = html; res.hidden = false;
-  $('exportBtn').onclick = exportJSON;
-  $('tabs').onclick = (e) => { const b = e.target.closest('.tab'); if (b) setTab(b.dataset.tab); };
-  startSky();
-  countUp();
-  setTab(ui.tab);
-  res.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
-}
-
-const fact = (k, v, hot, topic) => '<div><dt>' + (topic ? '<button class="learn-term" type="button" data-learn="' + topic + '">' + k + '</button>' : k) + '</dt><dd' + (hot ? ' class="hot"' : '') + (typeof v === 'number' ? ' data-n="' + v + '"' : '') + '>' + v + '</dd></div>';
-
-// The headline numbers count up once, quickly, so the eye lands on them.
-function countUp() {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const els = document.querySelectorAll('.facts dd[data-n]'), t0 = performance.now();
-  const step = (now) => {
-    const k = easeOut((now - t0) / 900);
-    els.forEach((el) => { el.textContent = Math.round(+el.dataset.n * k); });
-    if (k < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-}
-const tabBtn = (id, label, n) => '<button class="tab" role="tab" type="button" data-tab="' + id + '" aria-selected="false">' + label + (n !== '' ? '<span class="n">' + n + '</span>' : '') + '</button>';
-
-/* ---------- dependency skyline ----------
-   Every dependency is a block on a grid. Seen from straight above it is a flat
-   map; seen from the corner it is a skyline. Height is risk (critical 10, high 6,
-   medium 3, low 1), colour is the worst severity. One camera swings between the
-   two views while the blocks rise in a wave, so the map visibly becomes the city. */
-const SKY_WEIGHT = { CRITICAL: 10, HIGH: 6, MEDIUM: 3, LOW: 1, UNKNOWN: 1, NONE: 0 };
-const YAW_3D = Math.PI / 4, ELEV_3D = 34 * Math.PI / 180;
-const YAW_RANGE = [8 * Math.PI / 180, 82 * Math.PI / 180], ELEV_RANGE = [18 * Math.PI / 180, 62 * Math.PI / 180];
-const clamp01 = (v) => v > 0 ? (v < 1 ? v : 1) : 0;
-const lerp = (a, b, t) => a + (b - a) * t;
-const easeInOut = (x) => { const t = clamp01(x); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
-const easeOut = (x) => 1 - Math.pow(1 - clamp01(x), 3);
-function camera(e, dYaw, dElev) {
-  const yaw = Math.min(YAW_RANGE[1], Math.max(0, lerp(0, YAW_3D + dYaw, e)));
-  const elev = lerp(Math.PI / 2, Math.min(ELEV_RANGE[1], Math.max(ELEV_RANGE[0], ELEV_3D + dElev)), e);
-  return { cs: Math.cos(yaw), sn: Math.sin(yaw), se: Math.sin(elev), ce: Math.cos(elev) };
-}
-let probe = null;
-function toRGB(color, fb) {
-  if (!probe) { const c = document.createElement('canvas'); c.width = c.height = 1; probe = c.getContext('2d', { willReadFrequently: true }); }
-  probe.clearRect(0, 0, 1, 1); probe.fillStyle = 'rgba(0,0,0,0)'; probe.fillStyle = color; probe.fillRect(0, 0, 1, 1);
-  const d = probe.getImageData(0, 0, 1, 1).data;
-  return d[3] < 8 ? fb : [d[0], d[1], d[2]];
-}
-const rgb = (r, g, b) => 'rgb(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ')';
-function inQuad(p, o, x, y) {
-  let sign = 0;
-  for (let k = 0; k < 4; k++) {
-    const ax = p[o + k * 2], ay = p[o + k * 2 + 1], bx = p[o + ((k + 1) % 4) * 2], by = p[o + ((k + 1) % 4) * 2 + 1];
-    const cr = (bx - ax) * (y - ay) - (by - ay) * (x - ax);
-    if (Math.abs(cr) < 1e-9) continue;
-    const s = cr > 0 ? 1 : -1;
-    if (!sign) sign = s; else if (s !== sign) return false;
+  /* ================================================================ routing */
+  const VIEWS = { scan: 'viewScan', history: 'viewHistory', policy: 'viewPolicy', how: 'viewHow' };
+  const TITLES = { scan: 'depscan', history: 'History · depscan', policy: 'Policy · depscan', how: 'How a scan works · depscan' };
+  const scrollMemo = {};
+  function parseHash() {
+    const h = location.hash.replace(/^#/, '');
+    const [name, id] = h.split('/');
+    return { name: VIEWS[name] ? name : 'scan', id: id ? decodeURIComponent(id) : '' };
   }
-  return sign !== 0;
-}
-function quad(ctx, p, o, r) {
-  if (r < .3) { ctx.moveTo(p[o], p[o + 1]); ctx.lineTo(p[o + 2], p[o + 3]); ctx.lineTo(p[o + 4], p[o + 5]); ctx.lineTo(p[o + 6], p[o + 7]); ctx.closePath(); return; }
-  ctx.moveTo((p[o + 6] + p[o]) / 2, (p[o + 7] + p[o + 1]) / 2);
-  for (let k = 0; k < 4; k++) { const b = (k + 1) % 4; ctx.arcTo(p[o + k * 2], p[o + k * 2 + 1], p[o + b * 2], p[o + b * 2 + 1], r); }
-  ctx.closePath();
-}
-
-let sky = null;
-
-// A view with mostly clean packages wastes the stage on flat tiles and
-// shrinks the towers that matter. "Risky" lays out only packages with
-// advisories and turns every clean one into the platform they stand on.
-function skyHTML(m) {
-  const items = m.groups.slice().map((g) => { g.score = g.advs.reduce((s, a) => s + SKY_WEIGHT[a.sev], 0); return g; })
-    .sort((a, b) => b.score - a.score || rank(a.worst) - rank(b.worst) || a.dep.Name.localeCompare(b.dep.Name));
-  ui.sky = items;
-  const risky = items.filter((g) => g.score > 0).length;
-  const clean = items.length - risky;
-  // Default to Risky when clean packages dominate; All when there is nothing to focus on.
-  if (!ui.skyModeSet) ui.skyMode = risky > 0 && clean > risky ? 'risk' : 'all';
-  const canFocus = risky > 0 && clean > 0;
-
-  const counts = {};
-  items.forEach((g) => { counts[g.worst] = (counts[g.worst] || 0) + 1; });
-  const legend = SEVS.filter((s) => counts[s]).map((s) =>
-    '<button type="button" class="key" data-l="' + rank(s) + '" style="--c:' + (s === 'NONE' ? 'var(--flat)' : SEV[s].c) + '" aria-pressed="false" title="Highlight ' + SEV[s].label.toLowerCase() + '"><b>' + counts[s] + '</b> ' + SEV[s].label.toLowerCase() + '</button>').join('');
-  const top = items[0];
-  const towers = top && top.score
-    ? '<div class="corner bl"><span class="lbl">Tallest tower</span><span class="big">' + esc(top.dep.Name) + '</span><span class="lbl">' + plural(top.advs.length, 'advisory', 'advisories') + ', risk score ' + top.score + '</span></div>' : '';
-  const modes = canFocus
-    ? '<div class="seg sky-mode" id="skyMode" role="group" aria-label="Packages shown">' +
-        '<button type="button" data-m="risk" aria-pressed="' + (ui.skyMode === 'risk') + '">Risky <b>' + risky + '</b></button>' +
-        '<button type="button" data-m="all" aria-pressed="' + (ui.skyMode === 'all') + '">All <b>' + items.length + '</b></button>' +
-      '</div>' : '';
-  return '<section class="sky is3d" id="sky">' +
-    '<div class="sky-top"><p class="sky-title" id="skyTitle"></p>' +
-      '<div class="sky-ctl">' + modes +
-      '<div class="view" id="viewToggle" data-v="3d" role="group" aria-label="Chart view"><span class="knob" aria-hidden="true"></span>' +
-        '<button type="button" data-v="2d" aria-pressed="false" title="Flat map" aria-label="Flat map"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1" fill="currentColor"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1" fill="currentColor"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1" fill="currentColor"/><rect x="9" y="9" width="5.5" height="5.5" rx="1" fill="currentColor"/></svg></button>' +
-        '<button type="button" data-v="3d" aria-pressed="true" title="3D skyline" aria-label="3D skyline"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 1.2 14.2 4.6v6.8L8 14.8 1.8 11.4V4.6Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M1.8 4.6 8 8l6.2-3.4M8 8v6.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>' +
-      '</div></div></div>' +
-    '<div class="stage" id="stage"><canvas id="skyCanvas" tabindex="0" role="img"></canvas>' +
-      '<div class="corner tr"><span class="lbl">Blocking the build</span><span class="big" style="color:' + (m.blockPkgs ? 'var(--critical-t)' : 'var(--clean-t)') + '">' + m.blockPkgs + '</span><span class="lbl">' + (m.blockPkgs === 1 ? 'package' : 'packages') + ' your policy rejects</span></div>' +
-      towers + '</div>' +
-    '<div class="sky-foot"><span class="hint" id="skyHint"></span><div class="keys" id="skyKeys">' + legend + '</div></div>' +
-    '<p class="sr" aria-live="polite" id="skyLive"></p>' +
-  '</section>';
-}
-
-function startSky(opts) {
-  opts = opts || {};
-  const prev = sky ? sky.state() : null;
-  if (sky) sky.destroy();
-  const all = ui.sky, root = $('sky'), stage = $('stage'), canvas = $('skyCanvas'), tip = $('tip');
-  if (!all || !root) return;
-  const ctx = canvas.getContext('2d');
-  const ac = new AbortController(), on = (el, ev, fn) => el.addEventListener(ev, fn, { signal: ac.signal });
-  const rmq = matchMedia('(prefers-reduced-motion: reduce)');
-  let reduced = rmq.matches;
-
-  const riskyAll = all.filter((g) => g.score > 0);
-  const focus = ui.skyMode === 'risk' && riskyAll.length > 0 && riskyAll.length < all.length;
-  const items = focus ? riskyAll : all;
-  const cleanCount = all.length - riskyAll.length;
-  const plate = focus && cleanCount > 0; // the clean packages, as one platform
-
-  const n = items.length;
-  // A near-square block (slightly wide in All mode) fills the stage far
-  // better than a long strip. Cells are handed out by diagonal from the back
-  // corner, so the riskiest, tallest towers stand behind the shorter ones.
-  const C = Math.max(1, Math.ceil(Math.sqrt(n * (focus ? 1.2 : 1.7))));
-  const R = Math.max(1, Math.ceil(n / C));
-  const cells = [];
-  for (let x = 0; x < C; x++) for (let y = 0; y < R; y++) cells.push([x, y]);
-  cells.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || Math.abs(a[0] - a[1]) - Math.abs(b[0] - b[1]) || a[0] - b[0]);
-
-  const wk = new Float32Array(n), dy = new Float32Array(n), lv = new Uint8Array(n), hgt = new Float32Array(n), zs = new Float32Array(n);
-  const hover = new Float32Array(n), dim = new Float32Array(n), polys = new Float32Array(n * 24), faces = new Uint8Array(n);
-  const order = Array.from({ length: n }, (_, i) => i);
-  const at = new Map();
-  const maxScore = Math.max(1, ...items.map((g) => g.score));
-  items.forEach((g, i) => {
-    wk[i] = cells[i][0]; dy[i] = cells[i][1]; lv[i] = rank(g.worst);
-    hgt[i] = g.score > 0 ? .5 + Math.pow(g.score / maxScore, .8) * 6.4 : .18;
-    at.set(wk[i] + ',' + dy[i], i);
-  });
-  const diag = Math.max(1, C + R - 2);
-  const PLATE = -2, PAD = .45, PLATE_H = .16;
-  const platePoly = new Float32Array(24);
-
-  // Titles and hints follow the mode, so the copy always matches the picture.
-  $('skyTitle').innerHTML = focus
-    ? '<b>' + n + '</b> risky ' + (n === 1 ? 'package' : 'packages') + ' standing on <b>' + cleanCount + '</b> clean ones'
-    : '<b>' + all.length + '</b> ' + (all.length === 1 ? 'dependency' : 'dependencies') + ', tower height is risk';
-  canvas.setAttribute('aria-label', n + ' packages drawn as towers. Taller and redder means riskier. Use the arrow keys to read each package.');
-
-  let t = prev ? prev.t : 0, target = prev ? prev.target : 1, yaw = 0, elev = 0, yawGoal = 0, elevGoal = 0, entered = !!prev;
-  if (prev && prev.target === 1 && !reduced) t = .35; // replay the rise when switching modes
-  let W = 0, H2 = 0, H3 = 0, Hmax = 0, dpr = 1, lastH = -1, raf = 0, last = 0;
-  let col = [], fg = [20, 26, 36], bg = [255, 255, 255], plateCol = [0, 0, 0];
-  let hovered = -1, pinned = -1, active = -1, legendLevel = -1, legendSticky = -1;
-
-  const retheme = () => {
-    const cs = getComputedStyle(root);
-    fg = toRGB(cs.getPropertyValue('--text').trim(), fg);
-    bg = toRGB(cs.getPropertyValue('--surface').trim(), bg);
-    const dark = (0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2]) / 255 < .45;
-    const flat = [0, 1, 2].map((k) => bg[k] + (fg[k] - bg[k]) * (dark ? .16 : .1));
-    const cleanRGB = toRGB(cs.getPropertyValue('--clean').trim(), fg);
-    plateCol = [0, 1, 2].map((k) => flat[k] + (cleanRGB[k] - flat[k]) * (dark ? .22 : .28));
-    root.style.setProperty('--flat', rgb(flat[0], flat[1], flat[2]));
-    // In Risky mode clean packages are the platform, so the legend uses its colour.
-    const cleanKey = root.querySelector('.key[data-l="' + rank('NONE') + '"]');
-    if (cleanKey) cleanKey.style.setProperty('--c', plate ? rgb(plateCol[0], plateCol[1], plateCol[2]) : 'var(--flat)');
-    col = ['--critical', '--high', '--medium', '--low', '--unknown'].map((v) => toRGB(cs.getPropertyValue(v).trim(), fg)).concat([flat]);
-    if (entered) kick(); else draw();
-  };
-
-  const width = (e) => lerp(.78, .86, e);
-  const extent = (cam, e, full) => {
-    const w = width(e), off = (1 - w) / 2;
-    let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
-    const add = (x, y, z) => { const px = x * cam.cs - y * cam.sn, py = (x * cam.sn + y * cam.cs) * cam.se - z * cam.ce; if (px < a) a = px; if (px > b) b = px; if (py < c) c = py; if (py > d) d = py; };
-    for (let i = 0; i < n; i++) {
-      const x0 = wk[i] + off, y0 = dy[i] + off, z = full ? hgt[i] * e : zs[i];
-      add(x0, y0, z); add(x0 + w, y0, z); add(x0, y0 + w, z); add(x0 + w, y0 + w, 0); add(x0, y0 + w, 0); add(x0 + w, y0, 0);
+  function moveNav(instant) {
+    const a = document.querySelector('.nav a[aria-current="page"]'), ind = $('navInd');
+    if (!a || !ind) return;
+    if (instant) ind.style.transition = 'none';
+    ind.style.width = a.offsetWidth + 'px'; ind.style.transform = 'translateX(' + a.offsetLeft + 'px)';
+    if (instant) { void ind.offsetWidth; ind.style.transition = ''; }
+  }
+  function swapTo(name) {
+    for (const k in VIEWS) $(VIEWS[k]).hidden = k !== name;
+    document.querySelectorAll('.nav a').forEach((a) => { if (a.dataset.route === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+    moveNav(false);
+  }
+  async function route(first) {
+    const { name, id } = parseHash();
+    const prev = app.route;
+    if (prev) scrollMemo[prev] = scrollY;
+    if (name !== prev) {
+      const go = () => { swapTo(name); if (!first && name !== 'scan') scrollTo(0, scrollMemo[name] || 0); };
+      if (!first && document.startViewTransition && !reduced()) await document.startViewTransition(go).updateCallbackDone.catch(() => {});
+      else go();
+      app.route = name;
+      if (first) moveNav(true);
     }
-    if (plate) { add(-PAD, -PAD, 0); add(C + PAD, -PAD, 0); add(-PAD, R + PAD, 0); add(C + PAD, R + PAD, 0); }
-    return { minx: a, maxx: b, miny: c, maxy: d };
-  };
+    document.title = TITLES[name];
+    if (name !== 'scan' && !controller) DS.field.set({ mode: 'idle' });
+    else if (name === 'scan' && app.entry && !controller && app.fieldState) DS.field.set(app.fieldState);
+    setMenu(false);
+    syncWord();
+    setRail(name === 'scan' && !!app.entry && !$('results').hidden);
+    const demo = window.DepscanDemo;
+    if (demo) { if (name === 'how') demo.enter(); else demo.leave(); }
+    if (name === 'history') renderHistory();
+    if (name === 'policy') renderPolicy();
+    if (name === 'scan' && id && (!app.entry || app.entry.id !== id)) {
+      const e = await DS.store.getScan(id);
+      if (e) showEntry(e, { scroll: true });
+    }
+    if (name === 'scan' && !id && !prev && !first) scrollTo(0, scrollMemo.scan || 0);
+  }
+  function go(hash) { if (location.hash !== hash) history.pushState(null, '', hash); route(); }
+  addEventListener('popstate', () => route());
+  addEventListener('hashchange', () => route());
 
-  // Bigger cells when there are few packages, so a small risky set fills the stage.
-  const cap2 = n < 40 ? 64 : 44, cap3 = n < 40 ? 104 : 72;
-  const relayout = () => {
-    const w = Math.round(stage.clientWidth);
+  /* ================================================================ scan: helpers */
+  const sourceKey = (kind, v) => kind + ':' + String(v).trim().replace(/[\\/]+$/, '').toLowerCase();
+  function guessSource(label) {
+    const m = /^github\.com\/([^#]+)#(\d+)@/.exec(label);
+    if (m) return { kind: 'pr', key: 'pr:' + m[1].toLowerCase(), name: m[1] + ' #' + m[2], repo: m[1] };
+    if (/[\\/]|^[a-z]:/i.test(label)) return { kind: 'path', key: sourceKey('path', label), name: label.split(/[\\/]/).filter(Boolean).pop() || label, path: label };
+    return { kind: 'folder', key: sourceKey('folder', label), name: label };
+  }
+  async function lastOf(key) { return (await DS.store.listScans()).find((e) => e.source && e.source.key === key) || null; }
+  function setScanning(on) { document.documentElement.classList.toggle('scanning', on); $('pickBtn').disabled = on; $('pathBtn').disabled = on; syncWord(); }
+  function compactHero(on) {
+    const hero = $('hero');
+    if (hero.classList.contains('small') === on) { syncWord(); return; }
+    const f = () => { hero.classList.toggle('small', on); syncWord(); };
+    if (document.startViewTransition && !reduced()) document.startViewTransition(f); else f();
+  }
+  // The giant wordmark stands in the landscape only on the landing view.
+  function syncWord() {
+    const on = app.route === 'scan' && !$('hero').classList.contains('small') && !document.documentElement.classList.contains('scanning');
+    DS.field.word(on ? $('heroWord') : null);
+    $('cue').hidden = !(on && app.recentCount);
+    if (app.route !== 'scan' || !app.entry) setRail(false);
+  }
+
+  /* ================================================================ survey (progress while scanning) */
+  const STAGES = [
+    ['read', 'Read lockfiles', ''],
+    ['lic', 'Look up licenses', 'deps.dev, up to 8 lookups at a time'],
+    ['osv', 'Check advisories', 'OSV.dev: one batch query, then every matching record'],
+    ['pol', 'Apply your policy', '']
+  ];
+  function surveyHTML(s) {
+    const pol = app.policy;
+    const det = { read: s.kind === 'folder' ? 'In your browser: looking for go.mod and package-lock.json' : 'On the server: walking the folder', pol: pol ? 'policy.yaml, digest ' + pol.digest.slice(0, 7) : 'policy.yaml loaded by the server' };
+    return '<div class="sv-top"><p class="eyebrow survey-kicker"><span class="pulse" aria-hidden="true"></span><span id="svState">Surveying the dependencies</span></p><button class="btn btn-sm" type="button" id="svCancel">Cancel<span class="sr"> the scan</span></button></div>' +
+      '<div class="survey-head"><div><h2 class="survey-name">' + esc(s.name) + '</h2><p class="survey-sub" id="svSub">' + esc(s.sub || '') + '</p></div>' +
+      '<div class="clock" id="svClock" aria-hidden="true">0.0<small>s</small></div></div>' +
+      '<div class="radar"><canvas id="svRadar" aria-hidden="true"></canvas><div class="radar-tick"><b id="svTick"></b><span id="svCount"></span></div></div>' +
+      '<ol class="stages" id="svStages">' + STAGES.map(([id, title, d], i) => '<li class="stage wait" data-s="' + id + '"><span class="stage-n">0' + (i + 1) + '</span><b>' + title + icon.check + '</b><p id="sv-' + id + '">' + esc(d || det[id]) + '</p></li>').join('') + '</ol>' +
+      '<div class="eta"><div class="eta-bar loose" id="svBar"><i></i></div><p id="svEta"></p></div>' +
+      '<div class="survey-files" id="svFiles"></div>';
+  }
+  function stage(id, state, text) {
+    const li = document.querySelector('#svStages [data-s="' + id + '"]'); if (!li) return;
+    li.className = 'stage ' + state;
+    if (text != null) $('sv-' + id).textContent = text;
+  }
+  function startSurvey(s) {
+    const el = $('survey');
+    el.innerHTML = surveyHTML(s); el.hidden = false;
+    $('svCancel').onclick = () => cancelScan();
+    const t0 = performance.now();
+    let raf = 0, alive = true;
+    const radar = startRadar($('svRadar'), s);
+    const tickClock = () => {
+      if (!alive) return;
+      const ms = performance.now() - t0;
+      $('svClock').innerHTML = (ms / 1000).toFixed(1) + '<small>s</small>';
+      if (s.est) {
+        const p = Math.min(0.96, ms / s.est);
+        const bar = $('svBar'); bar.classList.remove('loose'); bar.firstChild.style.width = (p * 100).toFixed(1) + '%';
+        $('svEta').textContent = ms > s.est * 1.2 ? 'Taking longer than the ' + fmtMs(s.est) + ' your last scan of ' + s.name + ' took. OSV.dev can be slow; dropped connections are retried.' : 'About ' + fmtMs(s.est) + ', based on your last scan of ' + s.name + ' (' + ago(s.estAt) + ').';
+      } else if (!$('svEta').textContent) {
+        $('svEta').textContent = 'First scan of this project. Large projects can take a minute, because every advisory is fetched from OSV.dev.';
+      }
+      raf = setTimeout(tickClock, 100);
+    };
+    tickClock();
+    el.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'center' });
+    return {
+      t0, radar,
+      set(o) { if (o.sub != null) $('svSub').textContent = o.sub; if (o.names) radar.setNames(o.names, o.count, o.groups); if (o.files) $('svFiles').innerHTML = o.files; },
+      stop() { alive = false; clearTimeout(raf); radar.stop(); },
+      ms: () => performance.now() - t0
+    };
+  }
+
+  // The panel's scan field: one cell per package, swept by a beam.
+  function startRadar(canvas, s) {
+    const ctx = canvas.getContext('2d');
+    let names = [], count = s.count || 0, groups = [], raf = 0, alive = true, t0 = performance.now(), dpr = 1, W = 0, H = 0;
+    let colLine = [223, 231, 224], colBeam = [224, 35, 28], colAlt = [165, 191, 220];
+    const probe = document.createElement('canvas').getContext('2d');
+    const rgbOf = (c) => { probe.fillStyle = '#000'; probe.fillStyle = c; probe.fillRect(0, 0, 1, 1); const d = probe.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2]]; };
+    const cs = getComputedStyle(document.documentElement);
+    colLine = rgbOf(cs.getPropertyValue('--text').trim()); colBeam = rgbOf(cs.getPropertyValue('--brand').trim()); colAlt = rgbOf(cs.getPropertyValue('--low-t').trim());
+    const size = () => { const r = canvas.getBoundingClientRect(); dpr = Math.min(2, devicePixelRatio || 1); W = r.width; H = r.height; canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); };
+    size();
+    const ro = new ResizeObserver(size); ro.observe(canvas);
+    const draw = (now) => {
+      if (!alive) return;
+      const t = (now - t0) / 1000;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+      const known = count > 0, n = known ? count : 320, cells = Math.min(n, 2400), per = n / cells;
+      const top = 16, bottom = 40, availH = Math.max(20, H - top - bottom), availW = W - 28;
+      let cell = Math.max(4, Math.min(16, Math.floor(Math.sqrt((availW * availH) / cells) - 2)));
+      let cols = Math.max(1, Math.floor(availW / (cell + 2))), rows = Math.ceil(cells / cols);
+      while (rows * (cell + 2) > availH && cell > 3) { cell--; cols = Math.max(1, Math.floor(availW / (cell + 2))); rows = Math.ceil(cells / cols); }
+      const gw = cols * (cell + 2) - 2, ox = (W - gw) / 2, oy = top + (availH - rows * (cell + 2)) / 2;
+      const period = 2.6, ph = reduced() ? 0.5 : (t % period) / period, beamX = ox - 60 + ph * (gw + 120);
+      const split = groups.length > 1 ? groups[0].n : Infinity;
+      for (let i = 0; i < cells; i++) {
+        const cx = ox + (i % cols) * (cell + 2), cy = oy + Math.floor(i / cols) * (cell + 2);
+        const d = (cx + cell / 2) - beamX, g = Math.exp(-(d * d) / (2 * 34 * 34)), trail = d < 0 ? Math.exp(d / 200) * 0.4 : 0;
+        const a = (known ? 0.16 : 0.07) + g * 0.82 + trail * 0.35;
+        const k = Math.min(1, g * 1.5), base = i * per >= split ? colAlt : colLine;
+        const r = base[0] + (colBeam[0] - base[0]) * k * 0.85, gg = base[1] + (colBeam[1] - base[1]) * k * 0.85, b = base[2] + (colBeam[2] - base[2]) * k * 0.85;
+        ctx.fillStyle = 'rgba(' + (r | 0) + ',' + (gg | 0) + ',' + (b | 0) + ',' + Math.min(1, a).toFixed(3) + ')';
+        ctx.fillRect(cx, cy, cell, cell);
+      }
+      // the beam itself
+      const grd = ctx.createLinearGradient(beamX - 90, 0, beamX + 4, 0);
+      grd.addColorStop(0, 'rgba(' + colBeam.join(',') + ',0)'); grd.addColorStop(1, 'rgba(' + colBeam.join(',') + ',.26)');
+      ctx.fillStyle = grd; ctx.fillRect(beamX - 90, 6, 94, H - 46);
+      ctx.fillStyle = 'rgba(' + colBeam.join(',') + ',.9)'; ctx.fillRect(beamX, 6, 1.5, H - 46);
+      if (names.length && !reduced()) {
+        const idx = Math.min(names.length - 1, Math.floor(ph * names.length));
+        $('svTick').textContent = names[idx];
+      }
+      $('svCount').textContent = known ? (groups.length > 1 ? groups.map((g) => fmtN(g.n) + ' ' + g.label).join(', ') : (s.approx ? 'about ' : '') + fmtN(count) + ' packages' + (s.approx ? ' last time' : '')) + (per > 1.01 ? ', ' + Math.round(per) + ' per square' : '') : 'package count arrives with the result';
+      if (!reduced()) raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return {
+      setNames(list, c, gr) { names = list || []; if (c != null) count = c; groups = gr || []; if (reduced()) { $('svTick').textContent = names.length ? names.length + ' package names read' : ''; raf = requestAnimationFrame(draw); } },
+      stop() { alive = false; cancelAnimationFrame(raf); ro.disconnect(); }
+    };
+  }
+
+  /* ================================================================ scan: run */
+  let controller = null;
+  function cancelScan() { if (controller) controller.abort(); }
+
+  async function begin(source, sub) {
+    if (controller) controller.abort();
+    controller = new AbortController();
+    $('scanError').innerHTML = '';
+    $('results').hidden = true; DS.results.destroy();
+    app.entry = null; setRail(false);
+    compactHero(true); setScanning(true);
+    DS.field.set({ mode: 'scan' });
+    const last = await lastOf(source.key);
+    const sv = startSurvey({ name: source.name, kind: source.kind, sub, est: last && last.ms ? last.ms : 0, estAt: last ? last.at : 0, count: source.kind === 'path' && last && last.summary ? last.summary.deps : 0, approx: source.kind === 'path' && !!last });
+    return { sv, signal: controller.signal };
+  }
+  function end(sv) {
+    if (sv) sv.stop();
+    setScanning(false);
+    controller = null;
+  }
+
+  // Path scans: the server reads the folder itself (it must be inside its scan root).
+  async function scanPath(path) {
+    path = (path || $('pathIn').value).trim().replace(/^"(.*)"$/, '$1');
+    if (!path) { $('pathIn').focus(); return; }
+    $('pathIn').value = path;
+    const source = { kind: 'path', key: sourceKey('path', path), name: path.split(/[\\/]/).filter(Boolean).pop() || path, path };
+    const { sv, signal } = await begin(source, /^([a-z]:)?[\\/]/i.test(path) ? path : 'Inside ' + ROOT + SEP + path);
+    STAGES.forEach(([id]) => stage(id, 'run'));
+    stage('read', 'run', 'On the server: walking the folder, skipping .git, vendor and node_modules');
+    await send(source, sv, signal, () => fetch('/scans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }), signal }));
+  }
+
+  // Folder scans: the browser finds the lockfiles and sends only those.
+  async function scanWalk(source, walker) {
+    const { sv, signal } = await begin(source, 'Looking for lockfiles');
+    stage('read', 'run');
+    let w;
+    try {
+      w = await walker((p) => { sv.set({ sub: 'Looking for lockfiles: ' + plural(p.dirs, 'folder') + ' checked, ' + plural(p.found.length, 'lockfile') + ' found' }); }, signal);
+      if (!w) throw new Error('No folder was read.');
+      source.name = w.name || source.name;
+      source.key = sourceKey('folder', source.name);
+      document.querySelector('#survey .survey-name').textContent = source.name;
+      if (w.handle) DS.store.putHandle(source.key, w.handle);
+      if (!w.found.length) { end(sv); $('survey').hidden = true; showNoLockfiles(source.name, w); DS.field.set({ mode: 'idle' }); compactHero(false); return; }
+      const items = await DS.picker.readAll(w.found, signal);
+      const usable = items.filter((i) => !i.skip);
+      const count = usable.reduce((s, i) => s + i.count, 0);
+      // Go modules first, then npm packages, so the field shows two blocks.
+      const byKind = (k) => usable.filter((i) => i.kind === k);
+      const names = [], groups = [];
+      [['go', 'Go'], ['npm', 'npm']].forEach(([k, label]) => { const its = byKind(k); const n = its.reduce((a, i) => a + i.count, 0); if (n) { groups.push({ n, label }); its.forEach((i) => i.names.forEach((x) => names.push(x))); } });
+      const chips = items.map((i) => '<span class="lockchip' + (i.problem ? ' warn' : '') + '" title="' + esc(i.problem ? i.path + ' ' + i.problem : i.path) + '"><span>' + esc(i.path) + '</span><b>' + (i.problem ? 'skipped' : fmtN(i.count)) + '</b></span>').join('') +
+        (w.skipped.length ? '<span class="lockchip" title="' + esc(w.skipped.slice(0, 20).join('\n')) + '"><span>skipped</span><b>' + plural(w.skipped.length, 'folder') + '</b></span>' : '');
+      sv.set({ names, count, groups, files: chips });
+      if (!usable.length) { end(sv); $('survey').hidden = true; showNoLockfiles(source.name, w, items); DS.field.set({ mode: 'idle' }); compactHero(false); return; }
+      const pl = await DS.picker.payload(source.name, items);
+      stage('read', 'done', 'Read in your browser: ' + plural(usable.length, 'lockfile') + ', ' + fmtN(count) + ' entries');
+      ['lic', 'osv', 'pol'].forEach((id) => stage(id, 'run'));
+      sv.set({ sub: plural(count, 'package') + ' in ' + plural(usable.length, 'lockfile') + ', sent as ' + fmtBytes(pl.sent) + (pl.encoding ? ' compressed' : '') + (pl.slim ? ' (trimmed to the fields depscan reads)' : '') });
+      source.files = usable.map((i) => i.path);
+      const headers = { 'Content-Type': 'application/json' };
+      if (pl.encoding) headers['Content-Encoding'] = pl.encoding;
+      await send(source, sv, signal, () => fetch('/scans/upload', { method: 'POST', headers, body: pl.body, signal }));
+    } catch (e) {
+      end(sv); $('survey').hidden = true;
+      if (e.name === 'AbortError') { toast('Scan cancelled'); DS.field.set({ mode: 'idle' }); compactHero(!!app.entry); return; }
+      DS.field.set({ mode: 'idle' });
+      showError({ message: e.message, code: e.code });
+    }
+  }
+
+  async function send(source, sv, signal, doFetch) {
+    let res, data;
+    try {
+      res = await doFetch();
+      try { data = await res.json(); } catch (e) { data = null; }
+    } catch (e) {
+      end(sv); $('survey').hidden = true; DS.field.set({ mode: 'idle' });
+      if (e.name === 'AbortError') { toast('Scan cancelled'); compactHero(!!app.entry); return; }
+      checkHealth();
+      showError({ offline: true, message: e.message });
+      return;
+    }
+    if (!res.ok && res.status !== 422) {
+      end(sv); $('survey').hidden = true; DS.field.set({ mode: 'idle' });
+      showError({ status: res.status, message: (data && data.error) || ('The server answered ' + res.status), path: source.path });
+      return;
+    }
+    ['read', 'lic', 'osv', 'pol'].forEach((id) => stage(id, 'done'));
+    $('svState').textContent = 'Survey complete';
+    const ms = sv.ms();
+    end(sv);
+    const entry = { id: data.id, at: Date.parse(data.scanned_at) || Date.now(), label: source.kind === 'path' ? source.path : source.name, source, ms, record: data };
+    const m = DS.model.build(data, app.policy);
+    entry.summary = DS.model.summarize(m);
+    DS.store.putScan(entry);
+    await new Promise((r) => setTimeout(r, reduced() ? 0 : 420));
+    $('survey').hidden = true;
+    history.replaceState(null, '', '#scan/' + encodeURIComponent(entry.id));
+    await showEntry(entry, { scroll: true, fresh: true });
+  }
+
+  async function showEntry(entry, opt) {
+    opt = opt || {};
+    app.entry = entry;
+    compactHero(true);
+    $('scanError').innerHTML = '';
+    const [reviews, all] = await Promise.all([DS.store.reviewMap(), DS.store.listScans()]);
+    const prevList = all.filter((e) => e.source && entry.source && e.source.key === entry.source.key && e.id !== entry.id && e.at < entry.at);
+    const m = await DS.results.render($('results'), entry, { policy: app.policy, reviews, prev: prevList[0] || null, prevList, onRescan: rescan });
+    app.fieldState = { mode: 'result', verdict: m.verdict, block: m.blockPkgs + m.licBlocks, warn: m.warnPkgs, seed: entry.id };
+    DS.field.set(app.fieldState);
+    if (opt.fresh) DS.field.sweep();
+    document.title = (m.verdict === 'block' ? 'Blocked' : m.verdict === 'warn' ? 'Passes with warnings' : m.verdict === 'pass' ? 'Passes' : 'Nothing to scan') + ': ' + entry.label + ' · depscan';
+    if (opt.scroll) $('results').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
+    renderRecent();
+    buildRail();
+  }
+
+  /* ---------------- the rail beside a result ---------------- */
+  let railIO = null;
+  function buildRail() {
+    const rail = $('rail'), parts = Array.from(document.querySelectorAll('#results [data-ch]'));
+    if (railIO) railIO.disconnect();
+    rail.innerHTML = parts.map((el, i) => '<button type="button" data-i="' + i + '" aria-label="' + esc(el.dataset.ch) + '"><span>' + esc(el.dataset.ch) + '</span><i></i></button>').join('');
+    const btns = Array.from(rail.children);
+    const seen = new Map();
+    railIO = new IntersectionObserver((en) => {
+      en.forEach((x) => seen.set(x.target, x.isIntersecting ? x.intersectionRatio : 0));
+      let best = 0, bi = 0;
+      parts.forEach((p, i) => { const r = seen.get(p) || 0; if (r > best) { best = r; bi = i; } });
+      btns.forEach((b, i) => { b.classList.toggle('on', i === bi); if (i === bi) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
+    }, { threshold: [0, 0.1, 0.25, 0.5, 0.75, 1], rootMargin: '-20% 0px -30% 0px' });
+    parts.forEach((p) => railIO.observe(p));
+    rail.onclick = (e) => { const b = e.target.closest('[data-i]'); if (b) parts[+b.dataset.i].scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' }); };
+    setRail(parts.length > 1);
+  }
+  function setRail(on) { $('rail').hidden = !on || app.route !== 'scan'; }
+
+  /* ---------------- errors ---------------- */
+  function showNoLockfiles(name, w, items) {
+    const other = Array.from((w && w.other) || []).map(([k, v]) => k + ' (' + v.slice(0, 2).join(', ') + (v.length > 2 ? ', …' : '') + ')');
+    const tips = [];
+    if (items && items.some((i) => i.problem)) items.filter((i) => i.problem).forEach((i) => tips.push('<code>' + esc(i.path) + '</code> ' + esc(i.problem)));
+    if (w && w.noLock && w.noLock.length) tips.push('Found <code>package.json</code> without a <code>package-lock.json</code> in ' + esc(w.noLock.slice(0, 3).join(', ')) + '. Run <code>npm install</code> there to create the lockfile.');
+    if (other.length) tips.push('Found other lockfiles depscan cannot read yet: ' + esc(other.join('; ')) + '.');
+    if (w && w.truncated) tips.push('The folder is very large, so the search stopped after ' + fmtN(w.dirs) + ' folders. Pick the project folder itself rather than a parent.');
+    $('scanError').innerHTML = '<div class="alert" role="alert" style="--c:var(--medium)"><b>No go.mod or package-lock.json in ' + esc(name) + '</b><p>depscan scans Go modules and npm lockfiles (npm 7 or newer). It looked through ' + plural((w && w.dirs) || 0, 'folder') + ', skipping .git, vendor and node_modules.</p>' + (tips.length ? '<ul>' + tips.map((t) => '<li>' + t + '</li>').join('') + '</ul>' : '') + '<div class="row"><button class="btn btn-primary" type="button" data-pick>Choose another folder</button></div></div>';
+  }
+  function showError(e) {
+    let title = 'The scan did not finish', body = '<p>' + esc(e.message) + '</p>', actions = '';
+    const msg = String(e.message || '');
+    if (e.offline) {
+      title = 'The depscan server is not reachable';
+      body = '<p>The page could not connect to <span class="mono">' + esc(location.host) + '</span>. Start the server from the project folder, then try again:</p>' + codeBlock('make run-server', 'command');
+    } else if (/scan root/i.test(msg)) {
+      title = 'This server cannot read that folder';
+      body = '<p>Scans by path only work inside <span class="mono">' + esc(ROOT) + '</span>, so a web page can never make the server read the rest of your disk. Choose the folder instead: that works for any folder on any drive.</p>';
+      actions = '<button class="btn btn-primary" type="button" data-pick>Choose the folder</button>';
+    } else if (/no such file|cannot find|not find|does not exist|The system cannot/i.test(msg)) {
+      title = 'Folder not found';
+      body = '<p>Nothing exists at <span class="mono">' + esc(e.path || '') + '</span>. Check the spelling, or choose the folder instead.</p>';
+      actions = '<button class="btn btn-primary" type="button" data-pick>Choose the folder</button>';
+    } else if (/OSV|querybatch|osv\.dev/i.test(msg)) {
+      title = 'Could not get advisories from OSV.dev';
+      body = '<p>depscan retried, then stopped rather than report a pass with missing data. Check your internet connection and scan again.</p><p class="mono" style="font-size:12.5px">' + esc(msg) + '</p>';
+    } else if (e.status === 413 || e.code === 'too-large') {
+      title = 'These lockfiles are too large to send';
+      body = '<p>' + esc(msg) + '</p>';
+    }
+    $('scanError').innerHTML = '<div class="alert" role="alert"><b>' + title + '</b>' + body + '<div class="row">' + actions + '<button class="btn" type="button" data-dismiss>Dismiss</button></div></div>';
+    compactHero(!!app.entry);
+  }
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-pick]')) { e.preventDefault(); pickFolder(); }
+    if (e.target.closest('[data-dismiss]')) { $('scanError').innerHTML = ''; }
+  });
+
+  /* ---------------- choosing a folder ---------------- */
+  async function pickFolder() {
+    if (DS.picker.supportsDialog()) {
+      let h;
+      try { h = await DS.picker.chooseWithDialog(); }
+      catch (e) { $('dirInput').click(); return; } // e.g. blocked in an iframe: use the input
+      if (!h) return;
+      const src = { kind: 'folder', key: sourceKey('folder', h.name), name: h.name };
+      scanWalk(src, async (onP, sig) => { const w = await DS.picker.walkHandle(h, onP, sig); w.handle = h; return w; });
+    } else $('dirInput').click();
+  }
+  $('dirInput').addEventListener('change', (e) => {
+    const w = DS.picker.fromFileList(e.target.files);
+    e.target.value = '';
     if (!w) return;
-    W = w; dpr = Math.min(2, devicePixelRatio || 1);
-    const b2 = extent(camera(0, 0, 0), 0, true), bw2 = b2.maxx - b2.minx, bh2 = b2.maxy - b2.miny;
-    H2 = Math.max(80, Math.min(bh2 * Math.min((W - 8) / bw2, cap2) + 8, 460));
-    const b3 = extent(camera(1, 0, 0), 1, true), bw3 = b3.maxx - b3.minx, bh3 = b3.maxy - b3.miny;
-    H3 = Math.max(Math.min(bh3 * Math.min((W - 40) / bw3, cap3) + 40, W * .66, 560), Math.min(260, W * .75));
-    Hmax = Math.ceil(Math.max(H2, H3));
-    canvas.width = Math.round(W * dpr); canvas.height = Math.round(Hmax * dpr);
-    canvas.style.width = W + 'px'; canvas.style.height = Hmax + 'px';
-    lastH = -1; draw();
-  };
-
-  const rise = (i) => easeOut((t - ((wk[i] + dy[i]) / diag) * .4) / .58);
-
-  const face = (p, o, r, fill) => { ctx.beginPath(); quad(ctx, p, o, r); ctx.fillStyle = fill; ctx.fill(); };
-
-  const draw = () => {
-    if (!W || !col.length) return;
-    const e = easeInOut(t), cam = camera(e, yaw, elev), Hc = lerp(H2, H3, e);
-    if (Math.abs(Hc - lastH) > .2) { stage.style.height = Hc.toFixed(1) + 'px'; lastH = Hc; }
-    for (let i = 0; i < n; i++) zs[i] = rise(i) * hgt[i];
-    const b = extent(cam, e, false), pad = lerp(6, 24, e);
-    const aw = W - 2 * pad, ah = Hc - 2 * pad, bw = Math.max(1e-6, b.maxx - b.minx), bh = Math.max(1e-6, b.maxy - b.miny);
-    const s = Math.min(aw / bw, ah / bh, lerp(cap2, cap3, e));
-    const ox = pad + (aw - bw * s) / 2 - b.minx * s, oy = pad + (ah - bh * s) / 2 - b.miny * s;
-    const { cs, sn, se, ce } = cam;
-    const px = (x, y) => ox + (x * cs - y * sn) * s, py = (x, y, z) => oy + ((x * sn + y * cs) * se - z * ce) * s;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, Hmax);
-
-    // The platform goes first: everything stands on it.
-    if (plate) {
-      const x0 = -PAD, y0 = -PAD, x1 = C + PAD, y1 = R + PAD, z = PLATE_H * e, p = platePoly;
-      p[0] = px(x0, y0); p[1] = py(x0, y0, z); p[2] = px(x1, y0); p[3] = py(x1, y0, z);
-      p[4] = px(x1, y1); p[5] = py(x1, y1, z); p[6] = px(x0, y1); p[7] = py(x0, y1, z);
-      p[8] = px(x0, y1); p[9] = py(x0, y1, 0); p[10] = px(x1, y1); p[11] = py(x1, y1, 0); p[12] = p[4]; p[13] = p[5]; p[14] = p[6]; p[15] = p[7];
-      p[16] = px(x1, y0); p[17] = py(x1, y0, 0); p[18] = p[10]; p[19] = p[11]; p[20] = p[4]; p[21] = p[5]; p[22] = p[2]; p[23] = p[3];
-      const [r, g, bl] = plateCol, hl = active === PLATE ? .12 : 0;
-      const mix = (c, k) => c + (fg[k === 0 ? 0 : k === 1 ? 1 : 2] - c) * hl;
-      if (z * ce * s > .5) {
-        face(p, 8, 0, rgb(mix(r, 0) * .82, mix(g, 1) * .82, mix(bl, 2) * .82));
-        face(p, 16, 0, rgb(mix(r, 0) * .64, mix(g, 1) * .64, mix(bl, 2) * .64));
+    scanWalk({ kind: 'folder', key: sourceKey('folder', w.name), name: w.name }, async () => w);
+  });
+  async function rescan(entry) {
+    const s = entry.source || guessSource(entry.label);
+    if (s.kind === 'path') { go('#scan'); scanPath(s.path || entry.label); return; }
+    if (s.kind === 'folder') {
+      const h = await DS.store.getHandle(s.key);
+      if (h) {
+        try {
+          if (await DS.picker.reopen(h)) {
+            scanWalk({ kind: 'folder', key: s.key, name: s.name }, async (onP, sig) => { const w = await DS.picker.walkHandle(h, onP, sig); w.handle = h; return w; });
+            return;
+          }
+        } catch (e) { /* fall through to the picker */ }
       }
-      ctx.beginPath(); quad(ctx, p, 0, lerp(.35, .12, e) * s); ctx.fillStyle = rgb(mix(r, 0), mix(g, 1), mix(bl, 2)); ctx.fill();
-      ctx.strokeStyle = 'rgba(' + fg[0] + ',' + fg[1] + ',' + fg[2] + ',' + (active === PLATE ? .7 : .08) + ')'; ctx.lineWidth = active === PLATE ? 1.5 : 1; ctx.stroke();
+      toast('Choose the ' + s.name + ' folder again');
+      pickFolder();
+      return;
     }
+    toast('Pull request scans run again when the pull request gets a new commit');
+  }
 
-    order.sort((a, c) => (wk[a] + .5) * sn + (dy[a] + .5) * cs - ((wk[c] + .5) * sn + (dy[c] + .5) * cs));
-    const w = width(e), off = (1 - w) / 2, radius = lerp(.17, .03, e) * s, outline = (1 - e) * .06, lift = .7 * e;
-    const base = plate ? PLATE_H * e : 0;
-    const glow = n <= 150 && e > .5;
-    const flat = col[5];
-    for (let k = 0; k < n; k++) {
-      const i = order[k], x0 = wk[i] + off, y0 = dy[i] + off, x1 = x0 + w, y1 = y0 + w, z = base + zs[i] + hover[i] * lift, o = i * 24;
-      polys[o] = px(x0, y0); polys[o + 1] = py(x0, y0, z); polys[o + 2] = px(x1, y0); polys[o + 3] = py(x1, y0, z);
-      polys[o + 4] = px(x1, y1); polys[o + 5] = py(x1, y1, z); polys[o + 6] = px(x0, y1); polys[o + 7] = py(x0, y1, z);
-      polys[o + 8] = px(x0, y1); polys[o + 9] = py(x0, y1, base); polys[o + 10] = px(x1, y1); polys[o + 11] = py(x1, y1, base);
-      polys[o + 12] = polys[o + 4]; polys[o + 13] = polys[o + 5]; polys[o + 14] = polys[o + 6]; polys[o + 15] = polys[o + 7];
-      polys[o + 16] = px(x1, y0); polys[o + 17] = py(x1, y0, base); polys[o + 18] = polys[o + 10]; polys[o + 19] = polys[o + 11];
-      polys[o + 20] = polys[o + 4]; polys[o + 21] = polys[o + 5]; polys[o + 22] = polys[o + 2]; polys[o + 23] = polys[o + 3];
-      const tall = (z - base) * ce * s;
-      let f = 0; if (tall > .35 && w * cs * s > .35) f |= 1; if (tall > .35 && w * sn * s > .35) f |= 2; faces[i] = f;
-      const c = col[lv[i]];
-      let r = c[0], g = c[1], bl = c[2];
-      const d = dim[i];
-      if (d > .002) { r += (flat[0] - r) * .78 * d; g += (flat[1] - g) * .78 * d; bl += (flat[2] - bl) * .78 * d; }
-      const hv = hover[i];
-      if (hv > .002) { const m2 = .18 * hv; r += (fg[0] - r) * m2; g += (fg[1] - g) * m2; bl += (fg[2] - bl) * m2; }
-      if (f & 1) face(polys, o + 8, 0, rgb(r * .84, g * .84, bl * .84));
-      if (f & 2) face(polys, o + 16, 0, rgb(r * .66, g * .66, bl * .66));
-      // Critical and high towers glow like signs at night.
-      if (glow && lv[i] <= 1 && d < .5) { ctx.shadowColor = rgb(c[0], c[1], c[2]); ctx.shadowBlur = 18 * e * (1 - d); }
-      ctx.beginPath(); quad(ctx, polys, o, radius); ctx.fillStyle = rgb(r, g, bl); ctx.fill();
-      ctx.shadowBlur = 0;
-      if (outline > .004) { ctx.strokeStyle = 'rgba(' + fg[0] + ',' + fg[1] + ',' + fg[2] + ',' + outline.toFixed(3) + ')'; ctx.lineWidth = 1; ctx.stroke(); }
-      if (hv > .02) { ctx.strokeStyle = 'rgba(' + fg[0] + ',' + fg[1] + ',' + fg[2] + ',' + (.85 * hv).toFixed(3) + ')'; ctx.lineWidth = 1.5; ctx.stroke(); }
-    }
-    if (active >= 0) {
-      const i = active, z = base + zs[i] + hover[i] * lift, rc = canvas.getBoundingClientRect();
-      const tx = px(wk[i] + .5, dy[i] + .5), ty = Math.min(py(wk[i] + off, dy[i] + off, z), py(wk[i] + off + w, dy[i] + off, z), py(wk[i] + off, dy[i] + off + w, z));
-      tip.style.left = Math.min(Math.max(rc.left + tx, 130), innerWidth - 130) + 'px';
-      tip.style.top = (rc.top + ty) + 'px';
-    } else if (active === PLATE) {
-      const rc = canvas.getBoundingClientRect();
-      // Anchor to the platform's front corner, below the towers.
-      tip.style.left = Math.min(Math.max(rc.left + platePoly[10], 150), innerWidth - 150) + 'px';
-      tip.style.top = (rc.top + platePoly[11] + 58) + 'px';
-    }
-  };
-
-  const tick = (now) => {
-    raf = 0;
-    const dt = Math.min(.05, Math.max(0, (now - last) / 1000)); last = now;
-    let moving = false;
-    if (t !== target) { const st = reduced ? 1 : dt * 1000 / 1300; t = target > t ? Math.min(target, t + st) : Math.max(target, t - st); moving = true; }
-    const ko = reduced ? 1 : 1 - Math.exp(-dt * 12);
-    yaw += (yawGoal - yaw) * ko; elev += (elevGoal - elev) * ko;
-    if (Math.abs(yawGoal - yaw) > 1e-4 || Math.abs(elevGoal - elev) > 1e-4) moving = true; else { yaw = yawGoal; elev = elevGoal; }
-    const kh = reduced ? 1 : 1 - Math.exp(-dt * 16), kd = reduced ? 1 : 1 - Math.exp(-dt * 10);
-    const leg = legendSticky >= 0 ? legendSticky : legendLevel;
-    for (let i = 0; i < n; i++) {
-      const hg = i === active ? 1 : 0, dg = leg >= 0 && lv[i] !== leg ? 1 : 0;
-      if (hover[i] !== hg) { hover[i] = Math.abs(hg - hover[i]) < .003 ? hg : hover[i] + (hg - hover[i]) * kh; moving = true; }
-      if (dim[i] !== dg) { dim[i] = Math.abs(dg - dim[i]) < .003 ? dg : dim[i] + (dg - dim[i]) * kd; moving = true; }
-    }
-    draw();
-    if (moving) raf = requestAnimationFrame(tick);
-  };
-  const kick = () => { if (raf) return; last = performance.now(); raf = requestAnimationFrame(tick); };
-
-  const describe = (i) => {
-    const g = items[i];
-    return g.dep.Name + '@' + g.dep.Version + ': ' + (g.advs.length ? plural(g.advs.length, 'advisory', 'advisories') + ', worst ' + SEV[g.worst].label.toLowerCase() + (g.fixTo ? ', upgrade to ' + g.fixTo : '') : 'no known issues');
-  };
-  const showTip = () => {
-    if (active === -1) { tip.classList.remove('on'); return; }
-    if (active === PLATE) {
-      tip.innerHTML = '<b>' + cleanCount + '</b> ' + (cleanCount === 1 ? 'package' : 'packages') + ' with no known issues<br><span style="opacity:.7">Click to show every package</span>';
-    } else {
-      const g = items[active];
-      tip.innerHTML = '<span class="mono">' + esc(g.dep.Name) + '<span style="opacity:.6">@' + esc(g.dep.Version) + '</span></span><br>' +
-        (g.advs.length ? plural(g.advs.length, 'advisory', 'advisories') + ', worst ' + SEV[g.worst].label.toLowerCase() + (g.fixTo ? '. Upgrade to ' + esc(g.fixTo) : '') : 'No known issues');
-    }
-    tip.classList.add('on'); draw();
-  };
-  const refresh = () => { const next = hovered !== -1 ? hovered : pinned; if (next === active) return; active = next; showTip(); kick(); };
-  const hit = (x, y) => {
-    for (let k = n - 1; k >= 0; k--) { const i = order[k], o = i * 24; if (inQuad(polys, o, x, y) || (faces[i] & 1 && inQuad(polys, o + 8, x, y)) || (faces[i] & 2 && inQuad(polys, o + 16, x, y))) return i; }
-    if (plate && (inQuad(platePoly, 0, x, y) || inQuad(platePoly, 8, x, y) || inQuad(platePoly, 16, x, y))) return PLATE;
-    return -1;
-  };
-  const local = (ev) => { const r = canvas.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
-  const setMode = (m) => { if (ui.skyMode === m) return; ui.skyMode = m; ui.skyModeSet = true; tip.classList.remove('on'); syncModeButtons(); startSky(); };
-  const goTo = (i) => {
-    if (i === PLATE) { setMode('all'); return; }
-    const g = items[i]; tip.classList.remove('on');
-    if (g.status === 'clean') { ui.depQ = g.dep.Name; setTab('deps'); }
-    else { if (g.status === 'allowed') ui.showAllowed = true; ui.q = g.dep.Name; ui.open = new Set([g.key]); setTab('fixes'); }
-    $('tabs').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
-  };
-
-  let drag = null;
-  on(canvas, 'pointerdown', (ev) => {
-    if (ev.button !== 0) return;
-    const can = target === 1;
-    drag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, yaw: yawGoal, elev: elevGoal, moved: false, orbit: can, mouse: ev.pointerType === 'mouse' };
-    if (can) try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
+  // Drag and drop, anywhere on the Scan page.
+  let dragDepth = 0;
+  const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+  addEventListener('dragenter', (e) => { if (!hasFiles(e) || app.route !== 'scan') return; e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
+  addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) { document.body.classList.remove('dragging'); $('drop').classList.remove('over'); } });
+  addEventListener('dragover', (e) => { if (!hasFiles(e) || app.route !== 'scan') return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; $('drop').classList.toggle('over', !!e.target.closest('#drop')); });
+  addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging'); $('drop').classList.remove('over');
+    if (app.route !== 'scan' || controller) return;
+    const run = DS.picker.startDrop(e);
+    if (run) scanWalk({ kind: 'folder', key: 'folder:dropped', name: 'dropped folder' }, run);
   });
-  on(canvas, 'pointermove', (ev) => {
-    if (drag && drag.orbit && ev.pointerId === drag.id) {
-      const dx = ev.clientX - drag.x, dyy = ev.clientY - drag.y;
-      if (drag.moved || Math.hypot(dx, dyy) > 4) {
-        drag.moved = true;
-        yawGoal = Math.min(YAW_RANGE[1] - YAW_3D, Math.max(YAW_RANGE[0] - YAW_3D, drag.yaw + dx * .006));
-        if (drag.mouse) elevGoal = Math.min(ELEV_RANGE[1] - ELEV_3D, Math.max(ELEV_RANGE[0] - ELEV_3D, drag.elev + dyy * .004));
-        canvas.style.cursor = 'grabbing'; hovered = -1; refresh(); kick(); return;
+
+  /* ================================================================ recent projects */
+  function latestPerSource(list, n) {
+    const seen = new Set(), out = [];
+    for (const e of list) { const k = (e.source && e.source.key) || e.id; if (seen.has(k)) continue; seen.add(k); out.push(e); if (out.length >= n) break; }
+    return out;
+  }
+  const VCOL = { block: 'critical', warn: 'medium', pass: 'clean', empty: 'unknown' };
+  const VWORD = { block: 'Blocked', warn: 'Warnings', pass: 'Passed', empty: 'Empty' };
+  const kindIcon = (s) => (s && s.kind === 'pr' ? icon.pr : s && s.kind === 'folder' ? icon.folder : icon.path);
+  async function renderRecent() {
+    const all = await DS.store.listScans();
+    const n = $('navHist'); n.hidden = !all.length; n.textContent = all.length > 99 ? '99+' : all.length;
+    const list = latestPerSource(all, 6), el = $('recent');
+    app.recentCount = list.length;
+    syncWord();
+    if (!list.length) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = '<div class="recent-head"><div><p class="eyebrow"><span class="ey-dot" aria-hidden="true"></span>Latest result per project</p><h2>Recent projects</h2></div><a href="#history">All history</a></div><div class="recent-list">' + list.map((e) => {
+      const v = (e.summary && e.summary.verdict) || 'empty', s = e.source || guessSource(e.label);
+      return '<div class="proj"><span class="proj-ic">' + kindIcon(s) + '</span><button class="proj-main" type="button" data-open="' + esc(e.id) + '" title="Open the last result"><b>' + esc(s.name || e.label) + '</b><span><i class="dot" style="--c:var(--' + VCOL[v] + ')"></i>' + VWORD[v] + ', ' + esc(ago(e.at)) + '</span></button>' +
+        (s.kind !== 'pr' ? '<button class="icon-btn" type="button" data-rescan="' + esc(e.id) + '" aria-label="Scan ' + esc(s.name || e.label) + ' again" title="Scan again">' + icon.redo + '</button>' : '<span></span>') + '</div>';
+    }).join('') + '</div>';
+  }
+  $('recent').addEventListener('click', async (e) => {
+    const o = e.target.closest('[data-open]'); if (o) { go('#scan/' + encodeURIComponent(o.dataset.open)); return; }
+    const r = e.target.closest('[data-rescan]'); if (r) { const en = await DS.store.getScan(r.dataset.rescan); if (en) rescan(en); }
+  });
+
+  /* ================================================================ history page */
+  const hist = { q: '', v: 'all', confirm: '' };
+  async function syncServer() {
+    // Scans made by other tabs or by pull request webhooks live on the server
+    // until it restarts; copy any we have not saved yet.
+    try {
+      const { res, data } = await getJSON('/scans');
+      if (!res.ok || !Array.isArray(data)) return;
+      const have = new Set((await DS.store.listScans()).map((e) => e.id));
+      for (const rec of data) {
+        if (!rec || !rec.id || have.has(rec.id)) continue;
+        const entry = { id: rec.id, at: Date.parse(rec.scanned_at) || Date.now(), label: rec.path, source: guessSource(rec.path), ms: 0, record: rec };
+        entry.summary = DS.model.summarize(DS.model.build(rec, app.policy));
+        await DS.store.putScan(entry);
       }
-    }
-    if (ev.pointerType !== 'mouse') return;
-    const [x, y] = local(ev), i = hit(x, y);
-    if (i !== hovered) { hovered = i; refresh(); }
-    canvas.style.cursor = i !== -1 ? 'pointer' : target === 1 ? 'grab' : 'default';
-  });
-  on(canvas, 'pointerup', (ev) => {
-    if (!drag || ev.pointerId !== drag.id) return;
-    const moved = drag.moved; drag = null;
-    if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId);
-    canvas.style.cursor = target === 1 ? 'grab' : 'default';
-    if (moved) return;
-    const [x, y] = local(ev), i = hit(x, y);
-    if (i === -1) { pinned = -1; refresh(); return; }
-    if (ev.pointerType === 'mouse' || pinned === i) goTo(i);
-    else { pinned = i; hovered = -1; refresh(); }
-  });
-  on(canvas, 'pointercancel', () => { drag = null; });
-  on(canvas, 'pointerleave', () => { if (!drag) { hovered = -1; refresh(); } });
-  on(canvas, 'dblclick', () => { yawGoal = 0; elevGoal = 0; kick(); });
-  // Arrow keys move by grid position, not list order, because the layout is diagonal.
-  on(canvas, 'keydown', (ev) => {
-    const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Escape', 'Enter', ' '];
-    if (!keys.includes(ev.key) || !n) return;
-    ev.preventDefault();
-    if (ev.key === 'Escape') { pinned = hovered = -1; refresh(); return; }
-    if (ev.key === 'Enter' || ev.key === ' ') { if (active >= 0) goTo(active); return; }
-    let i = active >= 0 ? active : 0;
-    if (active >= 0) {
-      let x = wk[i], y = dy[i];
-      if (ev.key === 'ArrowLeft') x--; if (ev.key === 'ArrowRight') x++;
-      if (ev.key === 'ArrowUp') y--; if (ev.key === 'ArrowDown') y++;
-      if (ev.key === 'Home') i = 0; else if (ev.key === 'End') i = n - 1;
-      else if (at.has(x + ',' + y)) i = at.get(x + ',' + y);
-    }
-    pinned = i; hovered = -1; refresh();
-    $('skyLive').textContent = describe(pinned);
-  });
-  on(canvas, 'blur', () => { pinned = -1; refresh(); });
-  on(window, 'scroll', () => { if (active !== -1) { hovered = -1; pinned = -1; refresh(); } }, { passive: true });
-
-  const toggle = $('viewToggle');
-  const setView = (v) => {
-    target = v === '3d' ? 1 : 0;
-    if (!target) { yawGoal = 0; elevGoal = 0; }
-    toggle.dataset.v = v; root.classList.toggle('is3d', !!target);
-    toggle.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
-    $('skyHint').textContent = target ? 'Hover a tower for details. Drag to orbit, double-click to reset.' : 'Hover a block for details. Arrow keys walk the map.';
-    canvas.style.cursor = target ? 'grab' : 'default';
-    kick();
-  };
-  on(toggle, 'click', (e) => { const b = e.target.closest('button'); if (b) setView(b.dataset.v); });
-  const modeBox = $('skyMode');
-  const syncModeButtons = () => { if (modeBox) modeBox.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === ui.skyMode))); };
-  if (modeBox) on(modeBox, 'click', (e) => { const b = e.target.closest('button'); if (b) setMode(b.dataset.m); });
-
-  const keys = $('skyKeys');
-  on(keys, 'mouseover', (e) => { const b = e.target.closest('.key'); if (b) { legendLevel = +b.dataset.l; kick(); } });
-  on(keys, 'mouseleave', () => { legendLevel = -1; kick(); });
-  on(keys, 'click', (e) => {
-    const b = e.target.closest('.key'); if (!b) return;
-    // The clean colour lives on the platform in Risky mode; show every package to highlight it.
-    if (+b.dataset.l === rank('NONE') && focus) { setMode('all'); return; }
-    legendSticky = legendSticky === +b.dataset.l ? -1 : +b.dataset.l;
-    keys.querySelectorAll('.key').forEach((k) => k.setAttribute('aria-pressed', String(+k.dataset.l === legendSticky)));
-    kick();
-  });
-
-  on(rmq, 'change', () => { reduced = rmq.matches; kick(); });
-  on(matchMedia('(prefers-color-scheme: dark)'), 'change', retheme);
-  const ro = new ResizeObserver(() => { if (Math.round(stage.clientWidth) !== W) relayout(); });
-  ro.observe(stage);
-  const io = new IntersectionObserver((en) => {
-    if (en.some((x) => x.isIntersecting) && !entered) { entered = true; if (reduced) t = 1; kick(); io.disconnect(); }
-  }, { threshold: .3 });
-  const keepTarget = target;
-  target = 0; retheme(); relayout(); target = keepTarget;
-  setView(target ? '3d' : '2d');
-  if (entered) kick(); else io.observe(stage);
-
-  sky = {
-    state() { return { t, target }; },
-    destroy() { if (raf) cancelAnimationFrame(raf); ac.abort(); ro.disconnect(); io.disconnect(); tip.classList.remove('on'); sky = null; }
-  };
-}
-
-function setTab(id) {
-  ui.tab = id;
-  document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === id)));
-  const active = document.querySelector('.tab[data-tab="' + id + '"]');
-  const bar = $('tabBar');
-  if (active && bar) { bar.style.width = active.offsetWidth + 'px'; bar.style.transform = 'translateX(' + active.offsetLeft + 'px)'; }
-  if (id === 'fixes') renderFixes();
-  else if (id === 'licenses') renderLicenses();
-  else if (id === 'deps') renderDeps();
-  else renderHistory();
-}
-
-const searchBox = (id, value, ph) => '<label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span class="sr">' + ph + '</span><input id="' + id + '" value="' + esc(value) + '" placeholder="' + ph + '"></label>';
-
-function renderFixes() {
-  const m = ui.model;
-  const q = ui.q.toLowerCase();
-  const list = m.groups
-    .filter((g) => g.status === 'block' || g.status === 'warn' || (ui.showAllowed && g.status === 'allowed'))
-    .filter((g) => !q || g.dep.Name.toLowerCase().includes(q) || g.advs.some((a) => (a.id + ' ' + a.aliases.join(' ') + ' ' + a.summary).toLowerCase().includes(q)))
-    .sort((a, b) => ['block', 'warn', 'allowed'].indexOf(a.status) - ['block', 'warn', 'allowed'].indexOf(b.status) || rank(a.worst) - rank(b.worst) || b.advs.length - a.advs.length || a.dep.Name.localeCompare(b.dep.Name));
-
-  const allowedCount = m.groups.filter((g) => g.status === 'allowed').length;
-  let h = '<div class="toolbar">' + searchBox('fixQ', ui.q, 'Filter by package, CVE or GHSA') +
-    (allowedCount ? '<label class="check"><input type="checkbox" id="showAllowed"' + (ui.showAllowed ? ' checked' : '') + '> Include ' + plural(allowedCount, 'package') + ' below the policy threshold</label>' : '') +
-    '</div>';
-
-  if (!list.length) {
-    h += '<div class="list"><div class="empty"><b>' + (q ? 'No packages match “' + esc(ui.q) + '”' : 'Nothing to fix') + '</b>' +
-      (q ? 'Try a package name, CVE or GHSA ID.' : 'No package breaks or approaches your policy.') + '</div></div>';
-  } else {
-    h += '<div class="list">' + list.slice(0, ui.shown).map(pkgHTML).join('') + '</div>';
-    if (list.length > ui.shown) h += '<button class="ghost more" type="button" id="moreFix">Show ' + Math.min(PAGE, list.length - ui.shown) + ' more of ' + (list.length - ui.shown) + '</button>';
+    } catch (e) { /* offline: the saved history is still shown */ }
   }
-  $('panel').innerHTML = h;
-
-  const input = $('fixQ');
-  input.oninput = () => { ui.q = input.value; ui.shown = PAGE; const pos = input.selectionStart; renderFixes(); const n = $('fixQ'); n.focus(); n.setSelectionRange(pos, pos); };
-  const sa = $('showAllowed'); if (sa) sa.onchange = () => { ui.showAllowed = sa.checked; renderFixes(); };
-  const more = $('moreFix'); if (more) more.onclick = () => { ui.shown += PAGE; renderFixes(); };
-  $('panel').onclick = onPanelClick;
-}
-
-function pkgHTML(g) {
-  const counts = {};
-  g.advs.forEach((a) => { counts[a.sev] = (counts[a.sev] || 0) + 1; });
-  const pills = SEVS.filter((s) => counts[s]).map((s) => '<span class="pill" style="--c:' + SEV[s].c + ';--t:' + SEV[s].t + '">' + counts[s] + ' ' + SEV[s].label.toLowerCase() + '</span>').join('');
-  const fix = g.fixTo
-    ? '<div class="fix"><span class="to">Upgrade to <b>' + esc(g.fixTo) + '</b></span><button class="copy" type="button" data-cmd="' + esc(upgradeCmd(g.dep, g.fixTo)) + '">Copy command</button></div>'
-    : '<div class="fix"><span class="nofix">No fixed version published</span></div>';
-  const open = ui.open.has(g.key);
-  const meta = (g.dep.Ecosystem || '') + ', ' + (g.dep.Direct ? 'direct' : 'transitive') + ', ' + STATUS[g.status === 'clean' ? 'allowed' : g.status].toLowerCase() +
-    (g.unfixed && g.fixTo ? ', ' + plural(g.unfixed, 'advisory', 'advisories') + ' without a fix' : '');
-  return '<div class="pkg' + (open ? ' open' : '') + '" data-key="' + esc(g.key) + '">' +
-    '<div class="pkg-head">' +
-      '<span class="sev" style="--c:' + SEV[g.worst].c + '"></span>' +
-      '<button class="toggle who" type="button" aria-expanded="' + open + '"><span class="name">' + esc(g.dep.Name) + '<em>@' + esc(g.dep.Version) + '</em></span><span class="meta" style="display:block">' + esc(meta) + '</span></button>' +
-      '<span class="counts">' + pills + '</span>' + fix +
-      '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>' +
-    '</div>' +
-    '<div class="pkg-body"><div><div class="advs">' + (open ? advsHTML(g) : '') + '</div></div></div>' +
-  '</div>';
-}
-
-// Upgrade path: installed version, then every version that closes advisories,
-// with the dot coloured by whatever risk is still left at that point.
-function pathHTML(g) {
-  const fixed = [...new Set(g.advs.map((a) => a.fixed).filter(Boolean))].sort((a, b) => cmpVer(nv(a), nv(b)));
-  if (!fixed.length) return '';
-  const left = (v) => g.advs.filter((a) => !a.fixed || cmpVer(nv(a.fixed), nv(v)) > 0);
-  const worstOf = (list) => list.reduce((w, a) => rank(a.sev) < rank(w) ? a.sev : w, 'NONE');
-  const color = (list) => list.length ? SEV[worstOf(list)].c : 'var(--clean)';
-  const stops = [{ v: g.dep.Version, c: color(g.advs), label: 'Installed', note: plural(g.advs.length, 'advisory', 'advisories') }];
-  // Only stop where the remaining risk visibly changes, plus the recommended
-  // target. Releases in between are folded into the next stop's count.
-  let prev = g.dep.Version, lastWorst = worstOf(g.advs);
-  fixed.forEach((v, i) => {
-    const rest = left(v), w = rest.length ? worstOf(rest) : 'CLEAR';
-    if (w === lastWorst && v !== g.fixTo && i !== fixed.length - 1) return;
-    const closed = g.advs.filter((a) => a.fixed && cmpVer(nv(a.fixed), nv(v)) <= 0 && cmpVer(nv(a.fixed), nv(prev)) > 0).length;
-    stops.push({ v, c: color(rest), note: 'Closes ' + closed + (rest.length ? ', ' + rest.length + ' left' : ''), rec: v === g.fixTo, rest: rest.length });
-    prev = v; lastWorst = w;
-  });
-  return '<div class="path"><p class="path-h">Upgrade path</p><div class="track"><ol>' + stops.map((s, i) => {
-    const next = stops[i + 1];
-    return '<li class="stop' + (s.rec ? ' rec' : '') + '" style="--i:' + i + ';--a:' + s.c + ';--b:' + (next ? next.c : s.c) + '">' +
-      (next ? '<span class="link" aria-hidden="true"></span>' : '') + '<span class="dot" aria-hidden="true"></span>' +
-      '<span class="mask"><b>' + esc(s.v) + '</b></span>' +
-      '<span class="mask"><small>' + (s.label ? s.label + ', ' + s.note.toLowerCase() : esc(s.note)) + '</small></span>' +
-      (s.rec ? '<span class="mask"><span><span class="tag' + (s.rest ? ' part' : '') + '">' + (s.rest ? 'Recommended' : 'Recommended, clears all') + '</span></span></span>' : '') +
-    '</li>';
-  }).join('') + '</ol></div></div>';
-}
-
-function advsHTML(g) {
-  return pathHTML(g) + g.advs.map((a, i) => {
-    const s = SEV[a.sev];
-    const cve = a.aliases.filter((x) => /^CVE-/.test(x))[0];
-    return '<div class="adv" style="--i:' + i + '"><span class="sevt" style="--t:' + s.t + '">' + s.label + '<small>' + STATUS[a.status] + '</small></span>' +
-      '<span class="what">' + esc(a.summary || 'No summary published') + '<br><a href="https://osv.dev/vulnerability/' + encodeURIComponent(a.id) + '" target="_blank" rel="noopener noreferrer">' + esc(a.id) + '</a>' +
-      (cve && cve !== a.id ? ' <a href="https://osv.dev/vulnerability/' + encodeURIComponent(cve) + '" target="_blank" rel="noopener noreferrer">' + esc(cve) + '</a>' : '') + '</span>' +
-      '<span class="in">' + (a.fixed ? 'Fixed in <b>' + esc(a.fixed) + '</b>' : 'No fix yet') + '</span></div>';
-  }).join('');
-}
-
-function onPanelClick(e) {
-  const copy = e.target.closest('.copy');
-  if (copy) { e.stopPropagation(); copyText(copy.dataset.cmd); return; }
-  const toggle = e.target.closest('.toggle');
-  if (!toggle) return;
-  const el = toggle.closest('.pkg'), key = el.dataset.key;
-  const g = ui.model.groups.find((x) => x.key === key);
-  const advs = el.querySelector('.advs');
-  if (!advs.innerHTML) advs.innerHTML = advsHTML(g);
-  const open = !el.classList.contains('open');
-  el.classList.toggle('open', open);
-  toggle.setAttribute('aria-expanded', String(open));
-  if (open) ui.open.add(key); else ui.open.delete(key);
-}
-
-function renderLicenses() {
-  const l = ui.model.licenses;
-  $('panel').innerHTML = '<div class="toolbar"></div><div class="list">' + l.map((x) =>
-    '<div class="pkg"><div class="pkg-head" style="grid-template-columns:4px minmax(0,1fr) auto"><span class="sev" style="--c:' + (x.status === 'block' ? 'var(--critical)' : 'var(--medium)') + '"></span>' +
-    '<span class="who"><span class="name">' + esc(x.dep.Name) + '<em>@' + esc(x.dep.Version) + '</em></span><span class="meta" style="display:block">' + esc(x.reason) + '</span></span>' +
-    '<span class="pill" style="--c:' + (x.status === 'block' ? 'var(--critical)' : 'var(--medium)') + ';--t:' + (x.status === 'block' ? 'var(--critical-t)' : 'var(--medium-t)') + '">' + (x.status === 'block' ? 'Denied' : 'Review') + '</span></div></div>'
-  ).join('') + '</div>';
-}
-
-function renderDeps() {
-  const m = ui.model, q = ui.depQ.toLowerCase();
-  const byKey = new Map(m.groups.map((g) => [g.key, g]));
-  const list = m.deps.filter((d) => (ui.depFilter === 'all' || (ui.depFilter === 'direct') === !!d.Direct) && (!q || d.Name.toLowerCase().includes(q)))
-    .sort((a, b) => a.Name.localeCompare(b.Name));
-  const segBtn = (v, label) => '<button type="button" data-f="' + v + '" aria-pressed="' + (ui.depFilter === v) + '">' + label + '</button>';
-  let h = '<div class="toolbar">' + searchBox('depQ', ui.depQ, 'Filter packages') +
-    '<div class="seg" id="depSeg">' + segBtn('all', 'All') + segBtn('direct', 'Direct') + segBtn('trans', 'Transitive') + '</div></div>';
-  h += '<div class="list"><div class="row head"><span>Package</span><span>Version</span><span>Type</span><span>Ecosystem</span><span>Status</span></div>';
-  if (!list.length) h += '<div class="empty"><b>No packages match</b>Clear the filter to see every dependency.</div>';
-  h += list.slice(0, ui.depShown).map((d) => {
-    const g = byKey.get(depKey(d)) || { worst: 'NONE' };
-    return '<div class="row"><span class="mono" title="' + esc(d.Name) + '">' + esc(d.Name) + '</span><span class="mono v" title="' + esc(d.Version) + '">' + esc(d.Version) + '</span>' +
-      '<span style="color:var(--muted);font-size:13px">' + (d.Direct ? 'Direct' : 'Transitive') + '</span><span style="color:var(--muted);font-size:13px">' + esc(d.Ecosystem) + '</span>' +
-      '<span class="dot" style="--c:' + SEV[g.worst].c + '">' + (g.worst === 'NONE' ? 'Clean' : SEV[g.worst].label) + '</span></div>';
-  }).join('') + '</div>';
-  if (list.length > ui.depShown) h += '<button class="ghost more" type="button" id="moreDeps">Show 60 more of ' + (list.length - ui.depShown) + '</button>';
-  $('panel').innerHTML = h;
-
-  const input = $('depQ');
-  input.oninput = () => { ui.depQ = input.value; ui.depShown = 60; const pos = input.selectionStart; renderDeps(); const n = $('depQ'); n.focus(); n.setSelectionRange(pos, pos); };
-  $('depSeg').onclick = (e) => { const b = e.target.closest('button'); if (b) { ui.depFilter = b.dataset.f; ui.depShown = 60; renderDeps(); } };
-  const more = $('moreDeps'); if (more) more.onclick = () => { ui.depShown += 60; renderDeps(); };
-  $('panel').onclick = null;
-}
-
-async function renderHistory() {
-  $('panel').innerHTML = '<div class="toolbar"></div><div class="list"><div class="empty">Loading history…</div></div>';
-  let recs = [];
-  try { recs = await (await fetch('/scans')).json(); } catch (e) {}
-  if (ui.tab !== 'history') return;
-  recs.sort((a, b) => new Date(b.scanned_at) - new Date(a.scanned_at));
-  let h = '<div class="toolbar"><span style="color:var(--muted);font-size:13.5px">Scans from this server session. They are kept in memory until the server restarts.</span></div><div class="list">';
-  h += '<div class="row head hist" style="cursor:default"><span>Folder</span><span>Result</span><span>When</span></div>';
-  h += recs.map((r) => {
-    const v = (r.result && r.result.Violations || []).length, w = (r.result && r.result.Warnings || []).length;
-    const c = v ? 'var(--critical)' : w ? 'var(--medium)' : 'var(--clean)';
-    return '<button type="button" class="row hist" data-id="' + esc(r.id) + '"><span class="mono" title="' + esc(r.path) + '">' + esc(r.path) + '</span>' +
-      '<span class="dot" style="--c:' + c + '">' + (v ? 'Blocked' : w ? 'Warnings' : 'Passed') + '</span><span style="color:var(--muted);font-size:13px">' + esc(ago(r.scanned_at)) + '</span></button>';
-  }).join('') + (recs.length ? '' : '<div class="empty"><b>No scans yet</b>Scan a folder and it shows up here.</div>') + '</div>';
-  $('panel').innerHTML = h;
-  $('panel').onclick = (e) => { const b = e.target.closest('.hist[data-id]'); if (!b) return; const r = recs.find((x) => x.id === b.dataset.id); if (r) { $('path').value = r.path; render(r); } };
-}
-
-function ago(t) {
-  const s = (Date.now() - new Date(t)) / 1000;
-  if (s < 60) return 'Just now';
-  if (s < 3600) return Math.floor(s / 60) + ' min ago';
-  if (s < 86400) return Math.floor(s / 3600) + ' h ago';
-  return new Date(t).toLocaleString();
-}
-
-/* ---------- small helpers ---------- */
-function toast(msg) {
-  const t = $('toast'); t.textContent = msg; t.classList.add('on');
-  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 1800);
-}
-async function copyText(s) {
-  try { await navigator.clipboard.writeText(s); toast('Copied: ' + s); }
-  catch (e) { prompt('Copy this command', s); }
-}
-function exportJSON() {
-  const r = Object.assign({}, ui.record); delete r._ms;
-  const blob = new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'depscan-' + (r.id || 'report') + '.json';
-  a.click(); URL.revokeObjectURL(a.href);
-  toast('Exported report');
-}
-
-/* ---------- panes: Scan and How it works ---------- */
-const PANES = { scan: $('paneScan'), how: $('paneHow') };
-const paneScroll = { scan: 0, how: 0 };
-function moveNavInd(instant) {
-  const a = document.querySelector('.nav a[aria-current="page"]'), ind = $('navInd');
-  if (!a || !ind) return;
-  if (instant) ind.style.transition = 'none';
-  ind.style.width = a.offsetWidth + 'px';
-  ind.style.transform = 'translateX(' + (a.offsetLeft - 4) + 'px)';
-  if (instant) { void ind.offsetWidth; ind.style.transition = ''; }
-}
-function route(first) {
-  const name = location.hash === '#how' ? 'how' : 'scan';
-  if (name === ui.pane) return;
-  const prev = ui.pane;
-  if (prev) paneScroll[prev] = scrollY;
-  ui.pane = name;
-  for (const k in PANES) PANES[k].hidden = k !== name;
-  document.querySelectorAll('.nav a').forEach((a) => { if (a.dataset.pane === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-  moveNavInd(first === true);
-  document.title = name === 'how' ? 'How a scan works · DepScan' : 'DepScan';
-  if (first !== true) {
-    const el = PANES[name];
-    el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter');
-    scrollTo({ top: paneScroll[name] || 0, behavior: 'instant' });
+  function spark(entries) {
+    const pts = entries.slice(0, 24).reverse();
+    if (pts.length < 2) return '<svg class="spark" viewBox="0 0 200 48" aria-hidden="true"><line x1="0" y1="40" x2="200" y2="40" stroke="var(--line-2)" stroke-dasharray="3 4"/></svg>';
+    const max = Math.max(1, ...pts.map((e) => (e.summary ? e.summary.advisories : 0)));
+    const x = (i) => 6 + i * (188 / (pts.length - 1)), y = (v) => 40 - (v / max) * 32;
+    const line = pts.map((e, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(e.summary ? e.summary.advisories : 0).toFixed(1)).join(' ');
+    return '<svg class="spark" viewBox="0 0 200 48" aria-hidden="true"><path d="' + line + '" fill="none" stroke="var(--text-2)" stroke-width="1.4" stroke-linejoin="round"/>' +
+      pts.map((e, i) => '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(e.summary ? e.summary.advisories : 0).toFixed(1) + '" r="3" fill="var(--' + VCOL[(e.summary && e.summary.verdict) || 'empty'] + ')"/>').join('') + '</svg>';
   }
-  const demo = window.DepscanDemo;
-  if (demo) { if (name === 'how') demo.enter(); else demo.leave(); }
-  if (name === 'scan' && sky) dispatchEvent(new Event('resize'));
-}
-function go(name) {
-  const h = name === 'how' ? '#how' : '#scan';
-  if (location.hash !== h) history.pushState(null, '', h);
-  route();
-}
-addEventListener('hashchange', route);
-addEventListener('popstate', route);
-document.addEventListener('click', (e) => {
-  const a = e.target.closest('a[href="#how"], a[href="#scan"]');
-  if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
-  e.preventDefault(); go(a.getAttribute('href') === '#how' ? 'how' : 'scan');
-});
-// "See it in the walkthrough" from the Learn panel.
-document.addEventListener('depscan:watch', (e) => {
-  go('how');
-  if (window.DepscanDemo) window.DepscanDemo.goChapter(e.detail.chapter, true);
-});
-// The walkthrough's last screen sends people back here.
-document.addEventListener('depscan:try', () => {
-  go('scan');
-  setTimeout(() => { $('path').focus({ preventScroll: true }); $('scanForm').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' }); }, 80);
-});
+  async function renderHistory(skipSync) {
+    const root = $('historyRoot');
+    if (!skipSync) { syncServer().then(() => renderHistory(true)); }
+    const all = await DS.store.listScans();
+    const usage = await DS.store.usage();
+    let h = '<div class="page-head"><div><p class="eyebrow"><span class="ey-dot" aria-hidden="true"></span>' + (all.length ? plural(all.length, 'scan') + ' kept in this browser' : 'Kept in this browser') + '</p><h1 class="h1" id="histTitle">History</h1><p class="lede">Every scan you run is saved in this browser, so it is still here after you close the tab, restart the server or turn the computer off. Open a scan to see its full result, or compare it with an earlier scan of the same project.</p></div>' +
+      '<div class="page-actions"><button class="btn btn-sm" type="button" id="hExport"' + (all.length ? '' : ' disabled') + '>' + icon.download + 'Export</button><button class="btn btn-sm" type="button" id="hImport">Import</button>' +
+      (all.length ? '<button class="btn btn-sm" type="button" id="hClear">' + (hist.confirm === 'all' ? 'Click again to delete ' + plural(all.length, 'scan') : 'Delete all') + '</button>' : '') + '<input type="file" id="hFile" accept="application/json,.json" hidden></div></div>';
+    if (!DS.store.persistent) h += '<div class="note" style="--c:var(--medium);margin-bottom:24px"><span class="dot" style="--c:var(--medium)"></span><span><b>This browser is not keeping history.</b> It blocks storage in this window (private browsing often does). Scans stay until you close the tab; export them to keep them.</span></div>';
+    if (!all.length) {
+      h += '<div class="empty"><b>No scans yet</b><span>Scan a project and it shows up here, with its full result.</span><div style="margin-top:16px"><a class="btn btn-primary" href="#scan">Scan a project</a></div></div>';
+      root.innerHTML = h; wireHistory(all); return;
+    }
+    // Projects: one card per source.
+    const groups = new Map();
+    all.forEach((e) => { const k = (e.source && e.source.key) || e.id; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); });
+    h += '<div class="sec-head"><div><h2>Projects</h2><p>The trend line is the number of advisories in each scan; dots show the verdict.</p></div></div><div class="projects">' +
+      Array.from(groups.values()).slice(0, 12).map((list) => {
+        const e = list[0], s = e.source || guessSource(e.label), v = (e.summary && e.summary.verdict) || 'empty', sm = e.summary || {};
+        return '<div class="pcard"><div class="pcard-top"><span class="proj-ic">' + kindIcon(s) + '</span><div style="min-width:0"><b>' + esc(s.name || e.label) + '</b><span>' + plural(list.length, 'scan') + ', last ' + esc(ago(e.at)) + '</span></div></div>' +
+          spark(list) + '<div class="pcard-foot"><span><i class="dot" style="--c:var(--' + VCOL[v] + ')"></i> ' + VWORD[v] + ', ' + fmtN(sm.advisories || 0) + ' advisories</span><span class="row"><button class="btn btn-sm" type="button" data-open="' + esc(e.id) + '">Open</button>' +
+          (s.kind !== 'pr' ? '<button class="btn btn-sm" type="button" data-rescan="' + esc(e.id) + '">Scan again</button>' : '') + '</span></div></div>';
+      }).join('') + '</div>';
 
-/* ---------- wiring ---------- */
-$('rootLabel').textContent = ROOT;
-$('rootLabel').title = ROOT;
-$('path').placeholder = ROOT + SEP + 'your-project';
-$('skel').innerHTML = Array.from({ length: 48 }, (_, i) => '<i style="--i:' + i + '"></i>').join('');
-$('ask').innerHTML = words($('ask').textContent);
-$('scanForm').onsubmit = (e) => { e.preventDefault(); runScan(); };
-$('cancelBtn').onclick = () => controller && controller.abort();
-$('recent').onclick = (e) => { const b = e.target.closest('.chip'); if (b) runScan(b.dataset.path); };
-addEventListener('keydown', (e) => {
-  if (ui.pane !== 'scan') return;
-  if (e.key === '/' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); $('path').focus(); $('path').select(); }
-  if (e.key === 'Escape' && controller) controller.abort();
-});
-addEventListener('resize', () => {
-  moveNavInd(true);
-  if (ui.model) { const a = document.querySelector('.tab[aria-selected="true"]'), bar = $('tabBar'); if (a && bar) { bar.style.width = a.offsetWidth + 'px'; bar.style.transform = 'translateX(' + a.offsetLeft + 'px)'; } }
-});
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => moveNavInd(true));
-renderRecent();
-route(true);
+    // Timeline
+    const q = hist.q.trim().toLowerCase();
+    const rows = all.filter((e) => (hist.v === 'all' || (e.summary && e.summary.verdict) === hist.v) && (!q || (e.label || '').toLowerCase().includes(q) || ((e.source && e.source.name) || '').toLowerCase().includes(q)));
+    h += '<div class="sec-head" style="margin-top:8px"><div><h2>All scans</h2></div></div><div class="toolbar"><label class="search">' + icon.search + '<span class="sr">Search scans</span><input id="hQ" value="' + esc(hist.q) + '" placeholder="Search by project or path" autocomplete="off"></label>' +
+      '<div class="seg" id="hSeg" role="group">' + [['all', 'All'], ['block', 'Blocked'], ['warn', 'Warnings'], ['pass', 'Passed']].map(([v, l]) => '<button type="button" data-v="' + v + '" aria-pressed="' + (hist.v === v) + '">' + l + '</button>').join('') + '</div><span class="grow"></span><span class="count-line">' + plural(rows.length, 'scan') + '</span></div>';
+    const days = new Map();
+    rows.forEach((e) => { const d = new Date(e.at), k = d.toDateString(); if (!days.has(k)) days.set(k, []); days.get(k).push(e); });
+    const today = new Date().toDateString(), yest = new Date(Date.now() - 86400000).toDateString();
+    days.forEach((list, k) => {
+      h += '<div class="tl-day"><h3>' + (k === today ? 'Today' : k === yest ? 'Yesterday' : new Date(k).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })) + '</h3>' + list.map((e) => {
+        const s = e.source || guessSource(e.label), v = (e.summary && e.summary.verdict) || 'empty', sm = e.summary || {};
+        const where = s.kind === 'pr' ? 'Pull request' : s.kind === 'folder' ? 'Picked folder' + (s.files && s.files.length ? ', ' + plural(s.files.length, 'lockfile') : '') : (s.path || e.label);
+        return '<div class="hrow"><span class="ic">' + kindIcon(s) + '</span><button class="nm" type="button" data-open="' + esc(e.id) + '"><b>' + esc(s.name || e.label) + '</b><span>' + esc(where) + '</span></button>' +
+          '<span class="vd"><i class="dot" style="--c:var(--' + VCOL[v] + ')"></i>' + VWORD[v] + '<span class="small" style="color:var(--muted)">' + esc(new Date(e.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })) + (e.ms ? ', ' + fmtMs(e.ms) : '') + '</span></span>' +
+          '<span class="ct">' + plural(sm.deps || 0, 'package') + ', ' + fmtN(sm.vulnPkgs || 0) + ' with advisories' + (sm.blockPkgs ? ', <b style="color:var(--critical-t);font-weight:500">' + sm.blockPkgs + ' blocking</b>' : '') + '</span>' +
+          '<span class="act"><button class="icon-btn" type="button" data-del="' + esc(e.id) + '" aria-label="' + (hist.confirm === e.id ? 'Confirm delete' : 'Delete this scan') + '" title="' + (hist.confirm === e.id ? 'Click again to delete' : 'Delete') + '"' + (hist.confirm === e.id ? ' style="color:var(--critical-t);background:color-mix(in srgb,var(--critical) 14%,transparent)"' : '') + '>' + icon.trash + '</button></span></div>';
+      }).join('') + '</div>';
+    });
+    if (!rows.length) h += '<div class="empty"><b>No scans match</b>Clear the search or the filter.</div>';
+    h += '<p class="store-line"><span>' + plural(all.length, 'scan') + ' saved in this browser' + (usage && usage.usage ? ', about ' + fmtBytes(usage.usage) : '') + '.</span><span>Keeps the newest ' + DS.store.KEEP + '.</span><span>Export to move them to another browser or computer.</span></p>';
+    root.innerHTML = h;
+    wireHistory(all);
+  }
+  function wireHistory(all) {
+    const root = $('historyRoot');
+    root.onclick = async (e) => {
+      const o = e.target.closest('[data-open]'); if (o) { go('#scan/' + encodeURIComponent(o.dataset.open)); return; }
+      const r = e.target.closest('[data-rescan]'); if (r) { const en = await DS.store.getScan(r.dataset.rescan); if (en) { go('#scan'); rescan(en); } return; }
+      const d = e.target.closest('[data-del]');
+      if (d) {
+        const id = d.dataset.del;
+        if (hist.confirm === id) { hist.confirm = ''; await DS.store.deleteScan(id); toast('Scan deleted'); }
+        else { hist.confirm = id; clearTimeout(hist.t); hist.t = setTimeout(() => { hist.confirm = ''; renderHistory(true); }, 4000); }
+        renderHistory(true); return;
+      }
+    };
+    const q = $('hQ'); if (q) q.oninput = () => { const pos = q.selectionStart; hist.q = q.value; renderHistory(true).then(() => { const n = $('hQ'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); };
+    const seg = $('hSeg'); if (seg) seg.onclick = (e) => { const b = e.target.closest('button'); if (b) { hist.v = b.dataset.v; renderHistory(true); } };
+    const ex = $('hExport'); if (ex) ex.onclick = async () => { const data = await DS.store.exportAll(); download('depscan-history-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(data), 'application/json'); toast('Exported ' + plural(data.scans.length, 'scan')); };
+    const im = $('hImport'), file = $('hFile');
+    if (im) im.onclick = () => file.click();
+    if (file) file.onchange = async () => {
+      const f = file.files[0]; file.value = ''; if (!f) return;
+      try { const n = await DS.store.importAll(JSON.parse(await f.text())); toast('Imported ' + plural(n, 'scan')); renderHistory(true); }
+      catch (err) { toast(err.message || 'That file could not be read', 'bad'); }
+    };
+    const cl = $('hClear');
+    if (cl) cl.onclick = async () => {
+      if (hist.confirm === 'all') { hist.confirm = ''; await DS.store.clearScans(); toast('History deleted'); }
+      else { hist.confirm = 'all'; clearTimeout(hist.t); hist.t = setTimeout(() => { hist.confirm = ''; renderHistory(true); }, 4000); }
+      renderHistory(true);
+    };
+  }
+
+  /* ================================================================ policy page */
+  const SEV_ORDER = ['CRITICAL', 'HIGH', 'MODERATE', 'MEDIUM', 'LOW', 'UNKNOWN'];
+  const sevTone = (s) => ({ CRITICAL: 'critical', HIGH: 'high', MODERATE: 'medium', MEDIUM: 'medium', LOW: 'low' }[s] || 'unknown');
+  const pchip = (label, tone) => '<span class="chip" style="--c:var(--' + tone + ');--t:var(--' + tone + '-t)">' + esc(label) + '</span>';
+  async function renderPolicy() {
+    const root = $('policyRoot');
+    if (!app.policy) await loadPolicy();
+    const p = app.policy;
+    let h = '<div class="page-head"><div><p class="eyebrow"><span class="ey-dot" aria-hidden="true"></span>policy.yaml, digest ' + esc(p.digest.slice(0, 12)) + '</p><h1 class="h1" id="polTitle">Policy</h1><p class="lede">The rules this server applies to every scan. They come from <code>policy.yaml</code>, read when the server started. Commit the same file to your repository and CI judges pull requests by exactly these rules.</p></div>' +
+      (p ? '<div class="page-actions"><span class="chip chip-line mono" title="SHA-256 of the loaded policy">sha256 ' + esc(p.digest.slice(0, 12)) + '</span></div>' : '') + '</div>';
+    if (!p) { root.innerHTML = h + '<div class="alert" style="--c:var(--medium)"><b>The policy could not be loaded</b><p>' + esc(app.policyErr) + '</p></div>'; return; }
+    const sevs = (list) => SEV_ORDER.filter((s) => (list || []).map((x) => String(x).toUpperCase()).includes(s)).map((s) => pchip(s, sevTone(s))).join('') || '<span class="small">None</span>';
+    const rule = (title, about, key, val) => '<div class="rule"><dt>' + title + '<small>' + about + ' <span class="yaml-key">' + key + '</span></small></dt><dd>' + val + '</dd></div>';
+    const today = new Date().toISOString().slice(0, 10);
+    const excs = (p.exceptions || []).map((e) => {
+      const expired = e.expires && e.expires < today, days = e.expires ? Math.floor((Date.parse(e.expires + 'T23:59:59Z') - Date.now()) / 86400000) : null;
+      const st = !e.expires ? pchip('No expiry', 'unknown') : expired ? pchip('Expired ' + e.expires, 'critical') : days <= 30 ? pchip('Expires in ' + plural(days, 'day'), 'medium') : pchip('Active until ' + e.expires, 'clean');
+      return '<div class="exc"><b><a class="xlink" href="' + esc(DS.links.advisory(e.id)) + '" target="_blank" rel="noopener noreferrer">' + esc(e.id) + '</a></b>' + st + '<p>' + esc(e.reason) + '</p></div>';
+    }).join('');
+    h += '<div class="pol-grid">' +
+      '<section class="pol-card"><h2>Vulnerabilities</h2><p>What happens to an advisory, by the severity OSV.dev reports for it.</p><dl class="rules">' +
+        rule('Blocks the build', 'Any of these fails the scan and CI.', 'block_severities', sevs(p.block_severities)) +
+        rule('Warns', 'Shown, but the build passes.', 'warn_severities', sevs(p.warn_severities)) +
+        rule('Unrated advisories', 'Records with no severity, like most GO- entries.', 'block_unknown_severity', p.block_unknown_severity ? pchip('Block', 'critical') : pchip('Allowed', 'clean')) +
+        rule('Transitive packages', 'Packages you did not add yourself.', 'check_transitive', p.check_transitive ? pchip('Checked', 'clean') : pchip('Ignored', 'medium')) +
+      '</dl></section>' +
+      '<section class="pol-card"><h2>Licenses</h2><p>Looked up on deps.dev for every package version.</p><dl class="rules">' +
+        rule('License lookups', 'Turn off for offline runs.', 'skip_license_check', p.skip_license_check ? pchip('Off', 'medium') : pchip('On', 'clean')) +
+        rule('Unknown licenses', 'deps.dev has no SPDX license.', 'block_unknown_license', p.block_unknown_license ? pchip('Block', 'critical') : pchip('Warn', 'medium')) +
+        rule('Denied', plural(p.denied_licenses.length, 'license') + '. Expressions count: "MIT OR GPL-3.0-only" passes.', 'denied_licenses', p.denied_licenses.map((l) => pchip(l, 'critical')).join('') || '<span class="small">None</span>') +
+      '</dl></section>' +
+      '<section class="pol-card pol-wide"><h2>Exceptions</h2><p>Advisories you accepted on purpose. Each needs a reason; one with an expiry date applies through that whole day, then blocks again.</p>' +
+        (excs || '<p class="small">No exceptions. Add one under <span class="mono">exceptions:</span> when an advisory cannot affect you.</p>') + '</section>' +
+      '<section class="pol-card"><h2>Try a rule</h2><p>Pick an advisory and see what this policy does with it.</p><div class="sim"><select class="select" id="simSev" aria-label="Severity">' + ['CRITICAL', 'HIGH', 'MODERATE', 'LOW', 'UNKNOWN'].map((s) => '<option value="' + s + '">' + (s === 'UNKNOWN' ? 'Unrated' : s.charAt(0) + s.slice(1).toLowerCase()) + '</option>').join('') + '</select>' +
+        '<select class="select" id="simScope" aria-label="Scope"><option value="direct">Direct package</option><option value="trans">Transitive package</option></select>' +
+        '<input class="field-in mono" id="simId" placeholder="Advisory ID (optional)" style="max-width:240px;min-height:40px" autocomplete="off"></div><div class="sim-out" id="simOut"></div></section>' +
+      '<section class="pol-card"><h2>When a scan stops</h2><dl class="rules">' +
+        rule('Stop at the first violation', 'Faster, but you only see one problem.', 'fail_fast', p.fail_fast ? pchip('On', 'medium') : pchip('Off', 'clean')) +
+        rule('Violation limit', 'Stop after this many. 0 means no limit.', 'max_violations', pchip(p.max_violations ? String(p.max_violations) : 'No limit', 'unknown')) +
+      '</dl></section>' +
+      '<section class="pol-card pol-wide"><h2>Change a rule</h2><p>Edit <code>policy.yaml</code>, then restart the server (Ctrl+C, then <code>make run-server</code>). Commit the change so CI uses it too.</p><div class="cols">' +
+        '<div class="stack"><h4 class="small">Accept an advisory for 90 days</h4>' + codeBlock('exceptions:\n  - id: GHSA-xxxx-xxxx-xxxx\n    reason: "Explain why this does not affect us"\n    expires: "' + new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10) + '"', 'exception') + '</div>' +
+        '<div class="stack"><h4 class="small">Fail CI on unknown licenses</h4>' + codeBlock('block_unknown_license: true', 'setting') + '<h4 class="small">Also block moderate advisories</h4>' + codeBlock('block_severities:\n  - CRITICAL\n  - HIGH\n  - MODERATE', 'setting') + '</div></div></section>' +
+      '</div>';
+    root.innerHTML = h;
+    const sim = () => {
+      const raw = $('simSev').value, trans = $('simScope').value === 'trans', id = $('simId').value.trim();
+      const exc = id ? (p.exceptions || []).find((e) => e.id.toLowerCase() === id.toLowerCase() && (!e.expires || e.expires >= today)) : null;
+      const inL = (l) => (l || []).map((x) => String(x).toUpperCase()).includes(raw);
+      let out, tone;
+      if (trans && !p.check_transitive) { out = '<b>Ignored.</b> It is transitive and <span class="mono">check_transitive</span> is off.'; tone = 'unknown'; }
+      else if (exc) { out = '<b>Allowed by an exception.</b> ' + esc(exc.reason) + (exc.expires ? ' (until ' + esc(exc.expires) + ')' : ''); tone = 'unknown'; }
+      else if (raw === 'UNKNOWN' ? p.block_unknown_severity : inL(p.block_severities)) { out = '<b>Blocks the build.</b> ' + (raw === 'UNKNOWN' ? '<span class="mono">block_unknown_severity</span> is on.' : raw + ' is in <span class="mono">block_severities</span>.') + ' CI fails and the API answers 422.'; tone = 'critical'; }
+      else if (inL(p.warn_severities) || (raw === 'MODERATE' && inL(p.warn_severities))) { out = '<b>Warns.</b> ' + raw + ' is in <span class="mono">warn_severities</span>. The build passes.'; tone = 'medium'; }
+      else { out = '<b>Allowed.</b> ' + (raw === 'UNKNOWN' ? 'Unrated advisories are not blocked.' : raw + ' is in neither list.') + ' It still shows under Fixes as below your threshold.'; tone = 'clean'; }
+      const o = $('simOut'); o.innerHTML = out; o.style.setProperty('--c', 'var(--' + tone + ')'); o.style.setProperty('--t', 'var(--' + tone + '-t)');
+    };
+    ['simSev', 'simScope'].forEach((id) => $(id).addEventListener('change', sim));
+    $('simId').addEventListener('input', sim);
+    $('simSev').value = 'HIGH'; sim();
+  }
+
+  /* ================================================================ wiring */
+  $('pickBtn').addEventListener('click', pickFolder);
+  $('pathForm').addEventListener('submit', (e) => { e.preventDefault(); scanPath(); });
+  $('pathIn').placeholder = ROOT ? ROOT + SEP + 'your-project' : 'Path to a project folder';
+  $('pathHint').innerHTML = ROOT ? 'This server can read folders inside <code>' + esc(ROOT) + '</code>. For any other folder, choose it above.' : '';
+  $('statusBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const pop = $('statusPop'), open = pop.hidden;
+    pop.hidden = !open; $('statusBtn').setAttribute('aria-expanded', String(open));
+    if (open) { renderStatus(); checkHealth(); }
+  });
+  document.addEventListener('click', (e) => { const pop = $('statusPop'); if (!pop.hidden && !pop.contains(e.target)) { pop.hidden = true; $('statusBtn').setAttribute('aria-expanded', 'false'); } });
+  $('themeBtn').addEventListener('click', () => { const cur = $('themeBtn').dataset.mode || 'system'; applyTheme(THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length]); });
+  $('motionBtn').addEventListener('click', () => applyMotion($('motionBtn').getAttribute('aria-pressed') === 'true'));
+  addEventListener('keydown', (e) => {
+    const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    if (e.key === 'Escape' && controller && !DS.sheet.isOpen) { cancelScan(); return; }
+    if (app.route !== 'scan' || typing || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === '/') { e.preventDefault(); $('pathIn').focus(); $('pathIn').select(); }
+  });
+  addEventListener('scroll', () => { $('bar').classList.toggle('solid', scrollY > 8); }, { passive: true });
+  addEventListener('resize', () => moveNav(true));
+
+  // Small screens: the sections slide in from the right.
+  function setMenu(open) {
+    document.documentElement.classList.toggle('menu-open', open);
+    $('menuBtn').setAttribute('aria-expanded', String(open));
+    $('menuBtn').setAttribute('aria-label', open ? 'Close the menu' : 'Menu');
+  }
+  $('menuBtn').addEventListener('click', () => setMenu(!document.documentElement.classList.contains('menu-open')));
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.documentElement.classList.contains('menu-open')) setMenu(false); });
+  $('cue').addEventListener('click', () => $('recent').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' }));
+
+  // A ring that follows the pointer and opens over things you can press.
+  (function cursor() {
+    const el = $('cursor');
+    if (!matchMedia('(pointer: fine)').matches || !matchMedia('(hover: hover)').matches) return;
+    let x = -100, y = -100, cx = -100, cy = -100, raf = 0, shown = false;
+    const HOT = 'a, button, [role="tab"], [role="slider"], summary, label[for], .drow, .proj-main, .peek, canvas#skyCanvas';
+    const TEXT = 'input, textarea, select, [contenteditable], .sheet-panel, .learn, pre, code';
+    const step = () => {
+      raf = 0;
+      const k = reduced() || document.documentElement.classList.contains('still') ? 1 : 0.22;
+      cx += (x - cx) * k; cy += (y - cy) * k;
+      el.style.transform = 'translate3d(' + cx.toFixed(1) + 'px,' + cy.toFixed(1) + 'px,0)';
+      if (Math.abs(x - cx) > 0.3 || Math.abs(y - cy) > 0.3) raf = requestAnimationFrame(step);
+    };
+    addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      x = e.clientX; y = e.clientY;
+      if (!shown) { shown = true; cx = x; cy = y; document.documentElement.classList.add('has-cursor'); }
+      const t = e.target;
+      el.classList.toggle('off', !!(t.closest && t.closest(TEXT)));
+      el.classList.toggle('hot', !!(t.closest && t.closest(HOT)));
+      if (!raf) raf = requestAnimationFrame(step);
+    }, { passive: true });
+    addEventListener('pointerdown', () => el.classList.add('down'));
+    addEventListener('pointerup', () => el.classList.remove('down'));
+    document.documentElement.addEventListener('mouseleave', () => { document.documentElement.classList.remove('has-cursor'); shown = false; });
+  })();
+
+  // The walkthrough preview on the landing view: one frame from the result step.
+  function drawPeek() {
+    const demo = window.DepscanDemo, c = $('peekCanvas');
+    if (!demo || !demo.thumb || !c || !c.offsetWidth) return;
+    const ch = demo.chapters.find((x) => /verdict|result|report/i.test(x.title)) || demo.chapters[Math.floor(demo.chapters.length / 2)];
+    demo.thumb(c, ch.start + ch.dur * 0.9);
+    const m = Math.round(demo.total);
+    $('peekLen').textContent = demo.chapters.length + ' steps, ' + Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0');
+  }
+  new ResizeObserver(() => drawPeek()).observe($('peekCanvas'));
+
+  // The intro counts real start-up work: fonts, saved history, the server, the policy.
+  const intro = (() => {
+    const d = document.documentElement, on = d.classList.contains('intro');
+    const left = new Map([['fonts', 'Loading the typefaces'], ['store', 'Opening your scan history'], ['server', 'Reaching the depscan server'], ['policy', 'Reading your policy']]);
+    let done = 0, shownPct = 0, raf = 0;
+    const total = left.size, t0 = performance.now();
+    const paint = () => {
+      raf = 0;
+      const target = Math.round(done / total * 100);
+      shownPct += Math.max(1, Math.round((target - shownPct) * 0.24));
+      if (shownPct > target) shownPct = target;
+      $('ldPct').textContent = shownPct; $('ldBar').style.transform = 'scaleX(' + (shownPct / 100) + ')';
+      if (shownPct < target) raf = requestAnimationFrame(paint);
+      else if (done >= total) setTimeout(() => { d.classList.remove('intro'); try { sessionStorage.setItem('depscan.intro', '1'); } catch (e) { /* storage blocked */ } }, Math.max(250, 1100 - (performance.now() - t0)));
+    };
+    return {
+      step(key) {
+        if (!on || !left.has(key)) return;
+        left.delete(key); done++;
+        $('ldStep').textContent = left.size ? left.values().next().value : 'Ready';
+        if (!raf) raf = requestAnimationFrame(paint);
+      }
+    };
+  })();
+  document.addEventListener('depscan:store', () => { renderRecent(); if (app.route === 'history') renderHistory(true); });
+  // From the Learn panel and the walkthrough.
+  document.addEventListener('depscan:watch', (e) => { go('#how'); if (window.DepscanDemo) window.DepscanDemo.goChapter(e.detail.chapter, true); });
+  document.addEventListener('depscan:try', () => { go('#scan'); setTimeout(() => { $('source').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'center' }); $('pickBtn').focus({ preventScroll: true }); }, 120); });
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href^="#"]');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    const href = a.getAttribute('href');
+    if (href === '#main') return;
+    e.preventDefault(); go(href);
+    if (href === '#scan' && !app.entry) scrollTo({ top: 0, behavior: reduced() ? 'auto' : 'smooth' });
+  });
+
+  let theme = 'system';
+  try { theme = localStorage.getItem('depscan.theme') || 'system'; } catch (e) { /* storage blocked */ }
+  applyTheme(THEMES.includes(theme) ? theme : 'system');
+  applyMotion(!document.documentElement.classList.contains('still'));
+  DS.splitWords($('scanTitle'));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => moveNav(true));
+
+  (async () => {
+    (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(() => intro.step('fonts'));
+    await DS.store.ready();
+    intro.step('store');
+    DS.store.persist();
+    await Promise.all([loadPolicy().then(() => intro.step('policy')), checkHealth().then(() => intro.step('server'))]);
+    renderRecent();
+    route(true);
+    drawPeek();
+    syncServer();
+    setInterval(() => { if (!document.hidden) checkHealth(); }, 60000);
+  })();
+})();

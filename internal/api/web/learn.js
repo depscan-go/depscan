@@ -1,4 +1,4 @@
-/* Learn: a floating panel that explains the terms DepScan uses.
+/* Learn: a floating panel that explains the terms depscan uses.
    Any element with data-learn="<topic>" opens it at that topic. */
 (function () {
   'use strict';
@@ -81,7 +81,9 @@
     hash: '<path d="M9.5 3.5 7.5 20.5M16.5 3.5l-2 17M4 9h16.5M3.5 15H20"/>',
     chain: '<rect x="2.5" y="8" width="6" height="8" rx="1.5"/><rect x="9" y="8" width="6" height="8" rx="1.5"/><rect x="15.5" y="8" width="6" height="8" rx="1.5"/>',
     hook: '<path d="M18 16.5a4 4 0 1 1-3.5-6M8.5 7.5a4 4 0 1 1 6.5 3M6 16.5a4 4 0 1 1 1-7.8"/>',
-    check: '<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.2 2.6 2.6 5-5.3"/>'
+    check: '<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.2 2.6 2.6 5-5.3"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 16.5v-6m0 0-2.5 2.5M12 10.5l2.5 2.5"/>',
+    history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 4v4h4"/><path d="M12 7.5V12l3 2"/>'
   };
   const icon = (n) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (I[n] || I.box) + '</svg>';
   const chev = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg>';
@@ -89,31 +91,41 @@
   /* ---------- topics ---------- */
   const GROUPS = ['Basics', 'Vulnerabilities', 'Licenses', 'Policy', 'Reports and trust', 'Pull requests'];
   const T = [
-    { id: 'dependency', g: 0, icon: 'box', c: 'var(--act)', title: 'Dependency', ch: 1,
+    { id: 'picker', g: 0, icon: 'folder', c: 'var(--text-2)', title: 'Choosing a folder', ch: 0,
+      sum: 'Pick any project on your computer. Only its lockfiles are sent.',
+      body: '<p>Browsers never tell a web page where a folder lives on disk, which protects you. So when you choose or drop a folder, the page itself looks through it for <code>go.mod</code> and <code>package-lock.json</code>, skipping <code>.git</code>, <code>vendor</code> and <code>node_modules</code>, and sends only those files to the depscan server on your computer.</p><p>Your source code never leaves the browser. The server writes the lockfiles to a temporary folder, scans them with the same engine as every other scan, and deletes them.</p>',
+      dep: 'Chrome and Edge can remember the folder, so <b>Scan again</b> takes one click after you allow it. Other browsers ask you to choose it again. Typing a path still works for folders inside the server\'s scan root.',
+      rel: ['lockfile', 'history'] },
+    { id: 'history', g: 0, icon: 'history', c: 'var(--text-2)', title: 'History and comparing scans', ch: 9,
+      sum: 'Every scan is saved in this browser and survives restarts.',
+      body: '<p>The server keeps scans in memory only, so the dashboard saves each result in your browser\'s storage (IndexedDB). It is still there after you close the tab, restart the server or turn the computer off.</p><p>A project\'s card shows its trend, and <b>Changes since last scan</b> lists new and fixed advisories, upgraded packages and changed licenses.</p>',
+      dep: 'History stays in the browser you scanned from. Export it from the History page to move it to another computer or attach it to an issue. The newest 300 scans are kept.',
+      rel: ['picker', 'fixed'] },
+    { id: 'dependency', g: 0, icon: 'box', c: 'var(--text-2)', title: 'Dependency', ch: 1,
       sum: 'Code your project uses that someone else wrote and publishes.',
       body: '<p>When you run <code>go get</code> or <code>npm install</code>, a package is downloaded from a registry such as proxy.golang.org or npmjs.com and becomes part of your build. Its bugs and security holes become yours too.</p><p>A typical service has tens to hundreds of dependencies, and you chose only a few of them directly.</p>',
-      dep: 'DepScan reads which packages and exact versions your project uses from its lockfiles, then checks each one.',
+      dep: 'depscan reads which packages and exact versions your project uses from its lockfiles, then checks each one.',
       rel: ['transitive', 'lockfile', 'vulnerability'] },
-    { id: 'transitive', g: 0, icon: 'tree', c: 'var(--act)', title: 'Direct and transitive', ch: 2,
+    { id: 'transitive', g: 0, icon: 'tree', c: 'var(--text-2)', title: 'Direct and transitive', ch: 2,
       sum: 'Direct ones you added. Transitive ones came along with them.',
       body: '<p>A <b>direct</b> dependency is one you asked for. A <b>transitive</b> (or indirect) one is a dependency of a dependency: you add <code>axios</code>, and <code>follow-redirects</code> comes with it.</p><p>Transitive packages usually outnumber direct ones several times over, and they ship in your build all the same.</p>',
       ex: 'require (\n\tgithub.com/gin-gonic/gin v1.9.0\n\tgolang.org/x/net v0.10.0 // indirect\n)',
       dep: 'In <code>go.mod</code>, transitive modules carry <code>// indirect</code>. In <code>package-lock.json</code>, direct ones are listed by the root entry. With <code>check_transitive: true</code>, both are held to the same rules.',
       rel: ['dependency', 'lockfile', 'policy'] },
-    { id: 'lockfile', g: 0, icon: 'lock', c: 'var(--act)', title: 'Lockfile', ch: 1,
+    { id: 'lockfile', g: 0, icon: 'lock', c: 'var(--text-2)', title: 'Lockfile', ch: 1,
       sum: 'The file that pins the exact version of every package.',
       body: '<p>A manifest says what you want (<code>"axios": "^0.21.1"</code>). A lockfile records what you actually got (<code>0.21.1</code>), so every machine builds the same thing.</p><ul><li><code>go.mod</code> lists the version Go selected for every module the build needs (Go 1.17 and later); <code>go.sum</code> holds their checksums.</li><li><code>package-lock.json</code> (npm 7 or newer) records the whole installed tree.</li></ul>',
-      dep: 'DepScan walks the folder for <code>go.mod</code> and <code>package-lock.json</code>, skipping <code>.git</code>, <code>vendor</code> and <code>node_modules</code>. An old npm lockfile (version 1) is rejected with a clear error instead of being read as empty.',
+      dep: 'depscan walks the folder for <code>go.mod</code> and <code>package-lock.json</code>, skipping <code>.git</code>, <code>vendor</code> and <code>node_modules</code>. An old npm lockfile (version 1) is rejected with a clear error instead of being read as empty.',
       rel: ['transitive', 'semver'] },
-    { id: 'semver', g: 0, icon: 'tag', c: 'var(--act)', title: 'Versions and semver', ch: 7,
+    { id: 'semver', g: 0, icon: 'tag', c: 'var(--text-2)', title: 'Versions and semver', ch: 7,
       sum: 'MAJOR.MINOR.PATCH, and what each part promises.',
       body: '<p>Semantic versioning numbers releases as <code>MAJOR.MINOR.PATCH</code>. A patch fixes bugs, a minor release adds features, a major release may break your code. Security fixes usually ship in a patch or minor release, so the upgrade is often small.</p><p>Go adds two rules: modules at v2 and above change their import path (<code>…/jwt/v4</code>), and untagged commits get pseudo-versions like <code>v0.0.0-20231218163308-9d2ee975ef9f</code>, a timestamp plus a commit hash.</p>',
-      dep: 'DepScan compares versions part by part to find the smallest upgrade that clears every advisory.',
+      dep: 'depscan compares versions part by part to find the smallest upgrade that clears every advisory.',
       rel: ['fixed', 'lockfile'] },
 
     { id: 'vulnerability', g: 1, icon: 'bug', c: 'var(--critical)', title: 'Vulnerability', ch: 4,
       sum: 'A flaw an attacker can use to make code do what it should not.',
-      body: '<p>Two from the sample project: a regular expression in axios that a crafted input can keep busy for a very long time (denial of service), and an SSH server callback in <code>golang.org/x/crypto</code> whose misuse can let the wrong key in (authorization bypass).</p><p>Having a vulnerable version does not always mean you are exploitable: that depends on whether your code reaches the affected function. DepScan reports by version, which is fast and errs on the safe side. Tools like <code>govulncheck</code> add call-graph analysis on top.</p>',
+      body: '<p>Two from the sample project: a regular expression in axios that a crafted input can keep busy for a very long time (denial of service), and an SSH server callback in <code>golang.org/x/crypto</code> whose misuse can let the wrong key in (authorization bypass).</p><p>Having a vulnerable version does not always mean you are exploitable: that depends on whether your code reaches the affected function. depscan reports by version, which is fast and errs on the safe side. Tools like <code>govulncheck</code> add call-graph analysis on top.</p>',
       dep: 'Every package is checked against OSV.dev, and each match becomes a row with its severity and the version that fixes it.',
       rel: ['advisory', 'severity', 'osv'] },
     { id: 'advisory', g: 1, icon: 'id', c: 'var(--critical)', title: 'Advisory IDs: CVE, GHSA, GO', ch: 5,
@@ -124,7 +136,7 @@
     { id: 'severity', g: 1, icon: 'gauge', c: 'var(--high)', title: 'Severity and CVSS', ch: 6, tool: 'cvss',
       sum: 'How bad a flaw is, usually from a CVSS score between 0 and 10.',
       body: '<p>The Common Vulnerability Scoring System rates how easy a flaw is to exploit and how much damage it can do. CVSS v3 maps the score to a label. Drag to see where the lines fall:</p>',
-      after: '<p>GitHub calls Medium <b>Moderate</b>; DepScan treats them as the same. Some records, including most GO- entries, carry no severity and show as <b>unrated</b>.</p>',
+      after: '<p>GitHub calls Medium <b>Moderate</b>; depscan treats them as the same. Some records, including most GO- entries, carry no severity and show as <b>unrated</b>.</p>',
       dep: 'Your policy picks which labels block the build and which only warn. <code>block_unknown_severity</code> decides what happens to unrated ones.',
       rel: ['policy', 'duplicates'] },
     { id: 'osv', g: 1, icon: 'db', c: 'var(--low)', title: 'OSV.dev', ch: 4,
@@ -138,6 +150,12 @@
       body: '<p>An advisory lists affected ranges, such as introduced at <code>0</code> and fixed in <code>0.31.0</code>. Moving to the fixed version or later clears it.</p><p>With several advisories on one package, the smallest upgrade that clears them all is the highest of their fixed versions. For <code>golang.org/x/crypto v0.14.0</code> in the sample, the fixes are at 0.17.0, 0.31.0 and 0.35.0, so the answer is <code>v0.35.0</code>.</p>',
       dep: 'The Fixes tab shows this path for every package, with a <code>go get</code> or <code>npm install</code> command you can copy.',
       rel: ['semver', 'severity'] },
+    { id: 'override', g: 1, icon: 'up', c: 'var(--clean)', title: 'Fixing a transitive package', ch: 7,
+      sum: 'How to upgrade a package you never added yourself.',
+      body: '<p><b>Go:</b> <code>go get golang.org/x/net@v0.33.0</code> works even for an indirect module: Go builds the highest version anything requires, and <code>go mod tidy</code> keeps it marked <code>// indirect</code>.</p><p><b>npm:</b> a nested package is chosen by its parent, so installing it at the top does not move the nested copy. Upgrade the parent, or add an override to <code>package.json</code> (npm 8.3 or newer) and run <code>npm install</code>:</p>',
+      ex: '"overrides": {\n  "follow-redirects": "1.15.6"\n}',
+      dep: '<code>go mod why -m &lt;module&gt;</code> and <code>npm explain &lt;name&gt;</code> show which of your dependencies pull a package in. depscan shows the right command for every flagged package.',
+      rel: ['transitive', 'fixed'] },
     { id: 'duplicates', g: 1, icon: 'merge', c: 'var(--low)', title: 'Duplicate advisories', ch: 5,
       sum: 'The same flaw reported twice, merged into one row.',
       body: '<p>Because OSV.dev gathers several databases, one bug in one package often comes back as two records, such as <code>GO-2023-2102</code> and <code>GHSA-4374-p667-p6c8</code>. Counting both inflates every number.</p><p>Worse, the GO- record has no severity. Left alone, it shows up as unrated and slips past a policy that blocks HIGH.</p>',
@@ -164,6 +182,11 @@
       dep: 'An OR expression passes when any option is allowed. An AND expression, or a single ID, fails when any part is denied.',
       rel: ['license', 'copyleft'] },
 
+    { id: 'review', g: 2, icon: 'check', c: 'var(--medium)', title: 'Reviewing a license', ch: 8,
+      sum: 'What to do when deps.dev has no license for a package.',
+      body: '<ul><li>Open the license tab on pkg.go.dev, or the npm page: it shows the license file for that exact version.</li><li>Check the repository for <code>LICENSE</code> or <code>COPYING</code> at that version.</li><li>Compare with deps.dev: if a newer version has a known license, upgrading may be simplest.</li><li>Record the SPDX ID you found and a decision: approve, reject, or ask legal.</li></ul>',
+      dep: 'The review sheet checks the license you type against your denied list as you type, saves your decision in this browser, and exports a review log as CSV or Markdown for a pull request or an audit. <code>policy.yaml</code> still decides what passes, the same way in CI.',
+      rel: ['license', 'spdx', 'policy'] },
     { id: 'policy', g: 3, icon: 'shield', c: 'var(--clean)', title: 'Policy file', ch: 6,
       sum: 'One file in your repo that decides what blocks the build.',
       body: '<p><code>policy.yaml</code> lives in your repository, so every scan, on a laptop or in CI, applies the same rules: which severities block, which warn, whether transitive packages count, which licenses are denied, and which exceptions apply.</p>',
@@ -177,34 +200,34 @@
       dep: 'An exception without a reason, or with a date that is not YYYY-MM-DD, makes the policy invalid instead of quietly allowing more.',
       rel: ['policy', 'advisory'] },
 
-    { id: 'sbom', g: 4, icon: 'doc', c: 'var(--low)', title: 'SBOM and CycloneDX', ch: 8,
+    { id: 'sbom', g: 4, icon: 'doc', c: 'var(--low)', title: 'SBOM and CycloneDX', ch: 10,
       sum: 'A machine-readable list of everything inside your software.',
       body: '<p>A Software Bill of Materials lists every component with its exact version, the way a food label lists ingredients. When a new vulnerability is announced, an SBOM answers "are we affected?" in seconds.</p><p>CycloneDX is an OWASP standard for SBOMs. It can also carry vulnerabilities and what you decided about them.</p>',
       dep: '<code>depscan -report report.cdx.json</code> writes a CycloneDX 1.5 file with every component, every advisory and its policy outcome, and a hash of the policy that produced it.',
       rel: ['purl', 'sha256'] },
-    { id: 'purl', g: 4, icon: 'link', c: 'var(--low)', title: 'Package URL (purl)', ch: 8,
+    { id: 'purl', g: 4, icon: 'link', c: 'var(--low)', title: 'Package URL (purl)', ch: 10,
       sum: 'One string that names a package in any ecosystem.',
       body: '<p>A package URL has the form <code>pkg:type/namespace/name@version</code>. SBOMs and advisory databases use it to agree on exactly which package they mean.</p>',
       ex: 'pkg:golang/golang.org/x/crypto@v0.14.0\npkg:npm/axios@0.21.1\npkg:npm/%40shop/ui-kit@2.3.0',
       dep: 'The purl is each component\'s ID in the report. The <code>@</code> of an npm scope is written <code>%40</code>, because a bare <code>@</code> starts the version.',
       rel: ['sbom'] },
-    { id: 'sha256', g: 4, icon: 'hash', c: 'var(--act)', title: 'SHA-256 fingerprint', ch: 8, tool: 'sha',
+    { id: 'sha256', g: 4, icon: 'hash', c: 'var(--text-2)', title: 'SHA-256 fingerprint', ch: 10, tool: 'sha',
       sum: 'A 64-character fingerprint of a file. Change one byte and it all changes.',
       body: '<p>SHA-256 turns any input into 256 bits, written as 64 hex characters. The same input always gives the same output, and nobody knows how to find two inputs with the same output. Edit the text below and watch the fingerprint:</p>',
-      dep: 'Next to each report DepScan writes <code>report.cdx.json.sha256</code>. Run <code>sha256sum -c report.cdx.json.sha256</code> to confirm the report was not changed.',
+      dep: 'Next to each report depscan writes <code>report.cdx.json.sha256</code>. Run <code>sha256sum -c report.cdx.json.sha256</code> to confirm the report was not changed.',
       rel: ['sbom', 'anchoring'] },
-    { id: 'anchoring', g: 4, icon: 'chain', c: 'var(--medium)', title: 'Anchoring a hash (planned)', ch: 9,
+    { id: 'anchoring', g: 4, icon: 'chain', c: 'var(--medium)', title: 'Anchoring a hash (planned)', ch: 11,
       sum: 'Publishing a report\'s fingerprint where nobody can quietly change it.',
       body: '<p>A hash stored next to the report does not stop someone from changing both. Anchoring writes the hash into a public ledger, such as the memo of a Solana transaction, which records it with a timestamp nobody can edit later.</p><p><b>What it proves:</b> this exact report existed, unchanged, at that time. <b>What it does not prove:</b> that the project is still safe. Advisories are published every day, so an old clean report is a fact about the past. Scan again for a current answer.</p>',
       dep: 'Planned: <code>-anchor</code> stores a receipt with the network, transaction and time, and <code>depscan verify</code> re-hashes the report and compares it with the ledger.',
       rel: ['sha256', 'sbom'] },
 
-    { id: 'webhook', g: 5, icon: 'hook', c: 'var(--act)', title: 'Webhooks and signatures', ch: 10,
+    { id: 'webhook', g: 5, icon: 'hook', c: 'var(--text-2)', title: 'Webhooks and signatures', ch: 12,
       sum: 'GitHub calls your server when a pull request changes.',
       body: '<p>A webhook is an HTTP request GitHub sends to a URL you choose when something happens, like a pull request being opened or getting new commits.</p><p>Anyone can send requests to that URL, so GitHub signs each one: the <code>X-Hub-Signature-256</code> header is an HMAC-SHA256 of the body, keyed with a secret only you and GitHub know.</p>',
-      dep: 'DepScan checks the signature with a constant-time comparison, answers 202 at once, ignores repeated deliveries, and scans in a background queue. Only the lockfiles at the head commit are downloaded.',
+      dep: 'depscan checks the signature with a constant-time comparison, answers 202 at once, ignores repeated deliveries, and scans in a background queue. Only the lockfiles at the head commit are downloaded.',
       rel: ['status'] },
-    { id: 'status', g: 5, icon: 'check', c: 'var(--clean)', title: 'Commit status checks (planned)', ch: 10,
+    { id: 'status', g: 5, icon: 'check', c: 'var(--clean)', title: 'Commit status checks (planned)', ch: 12,
       sum: 'The tick or cross next to a pull request.',
       body: '<p>A commit status reports a pass or fail for one commit. With branch protection, a repository can require a status to pass before a pull request can be merged.</p>',
       dep: 'Planned: post the scan result as a status on the pull request\'s head commit, with a comment listing what to fix.',
@@ -234,11 +257,11 @@
   function renderList() {
     const term = q.value.trim().toLowerCase();
     if (!term) {
-      list.innerHTML = GROUPS.map((g, gi) => '<div class="lgroup"><h3>' + g + '</h3>' + T.filter((t) => t.g === gi).map(row).join('') + '</div>').join('');
+      list.innerHTML = GROUPS.map((g, gi) => '<div class="lgrp"><h3 class="lgroup-h">' + g + '</h3>' + T.filter((t) => t.g === gi).map(row).join('') + '</div>').join('');
       return;
     }
     const hits = T.map((t, i) => [t, score(t, term), i]).filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1] || a[2] - b[2]).map((x) => x[0]);
-    list.innerHTML = hits.length ? '<div class="lgroup"><h3>' + hits.length + (hits.length === 1 ? ' topic' : ' topics') + '</h3>' + hits.map(row).join('') + '</div>' : '<p class="lempty">Nothing matches “' + esc(term) + '”.</p>';
+    list.innerHTML = hits.length ? '<div class="lgrp"><h3 class="lgroup-h">' + hits.length + (hits.length === 1 ? ' topic' : ' topics') + '</h3>' + hits.map(row).join('') + '</div>' : '<p class="lempty">Nothing matches “' + esc(term) + '”.</p>';
   }
 
   function toolHTML(kind) {
@@ -281,7 +304,7 @@
       '<div class="lhero"><span class="ic">' + icon(t.icon) + '</span><h3>' + esc(t.title) + '</h3></div>' +
       '<p class="lsum">' + esc(t.sum) + '</p>' + t.body + (t.tool ? toolHTML(t.tool) : '') + (t.after || '') +
       (t.ex ? '<pre>' + esc(t.ex) + '</pre>' : '') +
-      (t.dep ? '<div class="indep"><b>In DepScan</b>' + t.dep + '</div>' : '') +
+      (t.dep ? '<div class="indep"><b>In depscan</b>' + t.dep + '</div>' : '') +
       (t.rel && t.rel.length ? '<h4>Related</h4><div class="lrel">' + t.rel.map((r) => '<button type="button" data-topic="' + r + '">' + esc(BY[r].title) + '</button>').join('') + '</div>' : '') +
       (t.ch != null ? '<button class="lwatch" type="button" data-watch="' + t.ch + '"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 0v10l8.5-5z" fill="currentColor"/></svg>See it in the walkthrough</button>' : '') +
       '</div>';

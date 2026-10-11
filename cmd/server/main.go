@@ -51,6 +51,8 @@ func main() {
 	mux.HandleFunc("GET /assets/{name}", handler.Asset)
 	mux.HandleFunc("GET /healthz", handler.Healthz)
 	mux.HandleFunc("POST /scans", handler.CreateScan)
+	mux.HandleFunc("POST /scans/upload", handler.ScanUpload)
+	mux.HandleFunc("GET /policy", handler.PolicyView)
 	mux.HandleFunc("GET /scans", handler.ListScans)
 	mux.HandleFunc("GET /scans/{id}", handler.GetScan)
 
