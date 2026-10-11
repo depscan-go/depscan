@@ -9,11 +9,16 @@ expect_http "GET /healthz (may wake the app from zero)" 200 GET "$URL/healthz"
 echo "        first response took $((($(date +%s%N) - start) / 1000000)) ms"
 check "health says ok" jq -e '.status == "ok"' <<<"$RESP"
 
-expect_http "GET / (dashboard)" 200 GET "$URL/"
-if grep -q '<title>DepScan</title>' <<<"$RESP"; then ok "it's the DepScan dashboard, not the Azure placeholder"; else bad "dashboard title not found"; fi
-for asset in app.css app.js backdrop.js demo.js learn.js; do
-  expect_http "GET /assets/$asset" 200 GET "$URL/assets/$asset"
-done
+check_dashboard "$URL"
+expect_http "GET /policy" 200 GET "$URL/policy"
+check "it shows the default policy (blocks CRITICAL and HIGH)" jq -e '.block_severities == ["CRITICAL","HIGH"]' <<<"$RESP"
+
+# The folder picker is how people scan their own projects on the live site.
+upload_json vuln-go vuln-go >"$OUT/live-upload.json"
+expect_http "upload vuln-go" 422 POST "$URL/scans/upload" "@$OUT/live-upload.json"
+check "it found 2 deps and blocked 1" jq -e '(.result.Deps | length) == 2 and (.result.Violations | length) == 1' <<<"$RESP"
+expect_http "upload with ../ in a path" 400 POST "$URL/scans/upload" '{"name":"x","files":[{"path":"../go.mod","content":"module x"}]}'
+expect_http "upload from another website" 403 POST "$URL/scans/upload" "@$OUT/live-upload.json" "Sec-Fetch-Site: cross-site"
 
 # The container's scan root (/scans) is empty, so this scan finds nothing.
 expect_http "POST /scans . (empty scan root)" 200 POST "$URL/scans" '{"path":"."}'

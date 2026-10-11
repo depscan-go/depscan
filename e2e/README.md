@@ -15,9 +15,9 @@ Pick extras one at a time with `--live`, `--docker` or `--unit`. Logs and report
 | 02-report | CycloneDX SBOM, the `sha256sum -c` fingerprint, tampering getting caught, same input giving the same report, the anchor receipt |
 | 03-policies | exceptions (by id, by CVE alias, expired, no reason, bad date), strict mode, license check off, a typo in severities |
 | 04-errors | exit 2 on tool errors (bad path, policy or anchor, OSV unreachable); broken lockfiles only warn |
-| 05-server | local server: dashboard, scans API (200 and 422), history, path safety |
+| 05-server | local server: dashboard and its assets, policy, scans API (200 and 422), history, folder uploads (gzip, size, path and cross-site checks), path safety |
 | 06-webhook | signatures, ignored events, duplicate deliveries, a real background scan of PR #15 |
-| 07-live | the deployed app on Azure |
+| 07-live | the deployed app on Azure: dashboard, policy, an upload scan, webhook signature check |
 | 08-oracle | recomputes every project's numbers straight from OSV.dev and deps.dev and compares them with depscan |
 | 09-docker | the docker compose stack (ports 8080 and 5432) |
 | 10-unit | the Go unit tests with `-race` |
