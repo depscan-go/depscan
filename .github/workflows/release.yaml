@@ -1,0 +1,71 @@
+name: Release
+
+# Publish the CLI by pushing a version tag:
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # sign the build provenance with Sigstore (no keys to manage)
+  attestations: write # store the provenance on GitHub
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      # depscan scans its own dependencies and refuses to ship if they break its policy.
+      # Only the root go.mod: testdata/ is vulnerable on purpose.
+      - name: Scan depscan's own dependencies
+        run: |
+          mkdir -p dist sbom/depscan
+          cp go.mod sbom/depscan/
+          go run -ldflags "-X main.version=$VERSION" ./cmd/depscan \
+            -path sbom/depscan -policy policy.yaml -commit "$GITHUB_SHA" -report dist/depscan.sbom.json
+
+      - name: Build
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os=${target%/*} arch=${target#*/}
+            name="depscan_${VERSION#v}_${os}_${arch}"
+            exe=depscan
+            [ "$os" = windows ] && exe=depscan.exe
+            mkdir -p "build/$name"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=$VERSION" -o "build/$name/$exe" ./cmd/depscan
+            # The CLI needs a policy file, so ship the default one with it.
+            cp policy.yaml "build/$name/"
+            if [ "$os" = windows ]; then
+              (cd build && zip -qr "../dist/$name.zip" "$name")
+            else
+              tar -czf "dist/$name.tar.gz" -C build "$name"
+            fi
+          done
+          (cd dist && sha256sum -- * > checksums.txt)
+
+      # Lets anyone check a download came from this workflow:
+      #   gh attestation verify <file> --repo depscan-go/depscan
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*
+
+      # Tags with a hyphen (v0.1.0-rc.1) become pre-releases.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          [[ "$VERSION" == *-* ]] && flags+=(--prerelease)
+          gh release create "$VERSION" dist/* --title "$VERSION" --generate-notes "${flags[@]}"
