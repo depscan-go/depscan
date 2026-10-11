@@ -5,9 +5,9 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const pane = $('paneHow'), canvas = $('demoCanvas');
+  const pane = $('viewHow'), canvas = $('demoCanvas');
   if (!pane || !canvas) return;
-  const ctx = canvas.getContext('2d');
+  let ctx = canvas.getContext('2d'); // swapped briefly while drawing a preview elsewhere
   const Hash = window.DepscanHash;
 
   /* ======================= sample project ======================= */
@@ -128,15 +128,15 @@
   /* ======================= palette and type ======================= */
   // The stage is always night, whatever the page theme: it reads like a screen.
   const P = {
-    bg0: '#070B22', bg1: '#0E1640', panel: '#121B4A', panel2: '#19245A', panel3: '#22306E',
-    line: '#2A3A7C', line2: '#3B4E99', text: '#EEF2FF', muted: '#AAB5E0', faint: '#7280B6',
-    act: '#8270FF', act2: '#B3A8FF', crit: '#FF3D6E', high: '#FF8A1F', med: '#FFC83D', low: '#38BDF8',
-    ok: '#2EE6A6', unk: '#8B93C9', white: '#FFFFFF'
+    bg0: '#06080b', bg1: '#0a0e12', panel: '#0e1317', panel2: '#141a1f', panel3: '#1b2329',
+    line: '#222b31', line2: '#344038', text: '#dfe7e0', muted: '#aab5ad', faint: '#78837c',
+    act: '#9fb7c9', act2: '#dfe7e0', brand: '#e0231c', crit: '#ff5440', high: '#f2793a', med: '#e3b55a', low: '#8eadd0',
+    ok: '#7cc39b', unk: '#8d958f', white: '#FFFFFF'
   };
   const SEVC = { CRITICAL: P.crit, HIGH: P.high, MODERATE: P.med, MEDIUM: P.med, LOW: P.low };
   const sevc = (s) => SEVC[s] || P.unk;
   const SEVL = { CRITICAL: 'Critical', HIGH: 'High', MODERATE: 'Moderate' };
-  const FONT = { s: '"IBM Plex Sans", system-ui, sans-serif', m: '"IBM Plex Mono", ui-monospace, monospace', d: '"Bricolage Grotesque", "IBM Plex Sans", sans-serif' };
+  const FONT = { s: '"Onest", system-ui, sans-serif', m: '"JetBrains Mono", ui-monospace, monospace', d: '"Onest", system-ui, sans-serif' };
 
   /* ======================= math ======================= */
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -295,7 +295,7 @@
     ctx.save(); ctx.translate(x, y); const s = 1 - 0.12 * press; ctx.scale(s, s);
     A(a); ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 19); ctx.lineTo(4.6, 14.8); ctx.lineTo(7.8, 21.6); ctx.lineTo(10.6, 20.4); ctx.lineTo(7.5, 13.8); ctx.lineTo(13.6, 13.6); ctx.closePath();
-    ctx.fillStyle = '#fff'; ctx.fill(); ctx.shadowColor = 'transparent'; ctx.lineWidth = 1.2; ctx.strokeStyle = '#0E1734'; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.fill(); ctx.shadowColor = 'transparent'; ctx.lineWidth = 1.2; ctx.strokeStyle = '#06080b'; ctx.stroke();
     ctx.restore();
   }
   function caret(x, y, h, c, t) { if (Math.floor(t * 2.2) % 2 === 0) { A(); ctx.fillStyle = c || P.act2; ctx.fillRect(x, y - h / 2, 2, h); } }
@@ -387,134 +387,181 @@
     } else {
       box(x, y - h / 2, w, h, { r: 9, fill: rgba(P.panel2, 0.7), stroke: P.line2, dash: [4, 3], a });
     }
-    // Stored as DepScan stores it: Go versions without the leading v, which is what OSV.dev expects.
+    // Stored as depscan stores it: Go versions without the leading v, which is what OSV.dev expects.
     const v = p.eco === 'Go' ? p.v.slice(1) : p.v, vw = TW(v, { size: 11, f: 'm' });
     T(p.s, x + 12, y + 0.5, { size: 12.5, f: 'm', w: 500, c: P.text, a, max: w - vw - 30 });
     T(v, x + w - 10, y + 0.5, { size: 11, f: 'm', c: P.faint, al: 'right', a });
   }
 
-  /* ======================= 1. point at a folder ======================= */
+  /* ======================= 1. choose a folder ======================= */
   const TREE = [
     ['shop-api', 0, 'dir'], ['.git', 1, 'skip'], ['cmd', 1, 'dir'], ['go.mod', 1, 'lock'], ['go.sum', 1, 'file'],
     ['policy.yaml', 1, 'file'], ['web', 1, 'dir'], ['node_modules', 2, 'skip'], ['src', 2, 'dir'], ['package.json', 2, 'file'], ['package-lock.json', 2, 'lock']
   ];
-  const PATH = 'C:\\Users\\you\\code\\shop-api', ROOTP = 'C:\\Users\\you\\code';
+  const PICK = [['Desktop', 0], ['Documents', 0], ['code', 0], ['shop-api', 1], ['notes', 1]];
+  const LOCKS = [['go.mod', '1.2 KB', 3], ['package-lock.json', '38.4 KB', 10]];
   function sc1(t) {
     const L = WIDE
-      ? { app: [40, 50, 430, 124], srv: [90, 292, 340, 128], root: [520, 40, 410, 480], row0: 110, rowH: 34 }
-      : { app: [16, 20, 448, 124], srv: [16, 168, 448, 124], root: [16, 340, 448, 364], row0: 404, rowH: 26 };
-    const [ax, ay, aw, ah] = L.app, [sx, sy, sw, sh] = L.srv, [rx, ry, rw, rh] = L.root;
-    const btn = [ax + aw - 16 - 84, ay + 58, 84, 46], fld = [ax + 16, ay + 58, aw - 32 - 96, 46];
+      ? { app: [24, 24, 440, 236], tree: [496, 24, 440, 350], srv: [24, 280, 440, 256], note: [496, 390, 440, 146], row0: 92, rowH: 23.5, dlg: [92, 70, 320, 232] }
+      : { app: [16, 16, 448, 168], tree: [16, 196, 448, 278], srv: [16, 486, 448, 218], note: null, row0: 254, rowH: 18.6, dlg: [56, 52, 368, 236] };
+    const [ax, ay, aw, ah] = L.app, [tx, ty, tw, th] = L.tree, [sx, sy, sw, sh] = L.srv;
+    const btn = [ax + 16, ay + (WIDE ? 104 : 86), 176, 40];
+    const payY = ay + ah - (WIDE ? 34 : 26);
+    const [dx, dy, dw, dh] = L.dlg;
+    const rowY = (i) => L.row0 + i * L.rowH;
 
-    // app window
+    // the depscan page in your browser
     rise(k(t, 0, 0.6), () => {
-      card(ax, ay, aw, ah, { title: 'DepScan', icon: 'globe', tag: '127.0.0.1:8080' });
-      const typing = k(t, 0.5, 2.3), focus = t > 0.4 && t < 3.2;
-      box(fld[0], fld[1], fld[2], fld[3], { r: 10, fill: P.bg0, stroke: focus ? P.act : P.line2, lw: focus ? 1.5 : 1 });
-      icon('folder', fld[0] + 20, fld[1] + 23, 16, P.faint);
-      const s = typed(PATH, typing);
-      T(s, fld[0] + 36, fld[1] + 23.5, { size: WIDE ? 13 : 13.5, f: 'm', c: P.text, max: fld[2] - 44 });
-      if (focus) caret(fld[0] + 37 + Math.min(TW(s, { size: WIDE ? 13 : 13.5, f: 'm' }), fld[2] - 44), fld[1] + 23, 18, P.act2, t);
-      const press = t > 2.95 && t < 3.2 ? Math.sin(k(t, 2.95, 3.2) * Math.PI) : 0;
+      const top = card(ax, ay, aw, ah, { title: 'depscan', icon: 'globe', tag: '127.0.0.1:8080' });
+      T('WOULD THIS BUILD PASS?', ax + 16, top + 22, { size: WIDE ? 17 : 15, w: 400, f: 'd', c: P.text });
+      const press = t > 1.45 && t < 1.7 ? Math.sin(k(t, 1.45, 1.7) * Math.PI) : 0;
       ctx.save(); ctx.translate(btn[0] + btn[2] / 2, btn[1] + btn[3] / 2); ctx.scale(1 - press * 0.06, 1 - press * 0.06); ctx.translate(-(btn[0] + btn[2] / 2), -(btn[1] + btn[3] / 2));
-      box(btn[0], btn[1], btn[2], btn[3], { r: 10, fill: t > 3.0 && t < 4.4 ? '#6B5BEE' : P.act, glow: P.act, gb: 20, ga: 0.6 });
-      if (t > 3.05 && t < 4.4) spinner(btn[0] + btn[2] / 2, btn[1] + btn[3] / 2, 8, t, '#fff');
-      else T('Scan', btn[0] + btn[2] / 2, btn[1] + btn[3] / 2 + 0.5, { size: 14, w: 600, c: '#fff', al: 'center' });
+      box(btn[0], btn[1], btn[2], btn[3], { r: 20, fill: P.act2 });
+      icon('folder', btn[0] + 24, btn[1] + 20, 15, P.bg0, 1, 2);
+      T('CHOOSE A FOLDER', btn[0] + 40, btn[1] + 20.5, { size: 11, w: 600, c: P.bg0 });
       ctx.restore();
-      ripple(btn[0] + btn[2] / 2, btn[1] + btn[3] / 2, k(t, 3.0, 3.7), P.act2, 60);
+      ripple(btn[0] + btn[2] / 2, btn[1] + btn[3] / 2, k(t, 1.5, 2.1), P.act2, 70);
+      T('or drop one anywhere on the page', btn[0] + btn[2] + 16, btn[1] + 20, { size: 12, c: P.faint, max: aw - btn[2] - 48 });
+      // what will be sent
+      if (t < 7.9) T('Nothing is sent until you pick a folder.', ax + 16, payY, { size: 12, c: P.faint, a: 1 - k(t, 7.4, 7.9) });
     });
 
-    // server
-    rise(k(t, 2.6, 3.2), () => {
-      const top = card(sx, sy, sw, sh, { title: 'DepScan server', icon: 'server', tag: 'internal/api' });
-      const req = k(t, 4.1, 4.4);
-      fade(req, () => {
-        runs([['POST ', P.act2], ['/scans', P.text]], sx + 16, top + 22, { size: 12.5, f: 'm', w: 500 });
-        T('{"path": "…\\shop-api"}', sx + 16 + TW('POST /scans  ', { size: 12.5, f: 'm', w: 500 }), top + 22, { size: 12, f: 'm', c: P.ok, max: sw - 150 });
+    // the system folder dialog, then the browser's permission prompt
+    const dlgIn = k(t, 1.7, 2.1), dlgOut = k(t, 4.1, 4.4);
+    if (dlgIn > 0 && dlgOut < 1) {
+      fade(1 - dlgOut, () => {
+        box(ax, ay, aw, ah, { r: 14, fill: rgba(P.bg0, 0.55 * dlgIn) });
+        pop(dlgIn, dx + dw / 2, dy + dh / 2, () => {
+          const perm = t > 3.45;
+          const top = card(dx, dy, dw, dh, { title: perm ? 'Let this site view files?' : 'Select a folder', icon: perm ? 'unlock' : 'folder', fill: P.panel2 });
+          if (!perm) {
+            PICK.forEach(([n, d], i) => {
+              const y = top + 18 + i * 27, sel = n === 'shop-api' && t > 2.65;
+              if (sel) box(dx + 10, y - 12, dw - 20, 24, { r: 6, fill: rgba(P.act, 0.22), stroke: rgba(P.act2, 0.5) });
+              icon('folder', dx + 26 + d * 18, y, 14, sel ? P.act2 : P.muted);
+              T(n, dx + 42 + d * 18, y + 0.5, { size: 12.5, f: 'm', c: sel ? P.text : P.muted, w: sel ? 600 : 400 });
+            });
+            const sb = [dx + dw - 104, dy + dh - 42, 88, 30], pr = t > 3.25 && t < 3.45;
+            box(sb[0], sb[1], sb[2], sb[3], { r: 8, fill: pr ? '#c8d2ca' : P.act2, a: t > 2.65 ? 1 : 0.4 });
+            T('Select', sb[0] + sb[2] / 2, sb[1] + 15.5, { size: 12.5, w: 600, c: P.bg0, al: 'center' });
+          } else {
+            const lines = wrap('127.0.0.1:8080 will be able to view files in shop-api while this tab is open.', dw - 32, { size: 12.5 });
+            lines.forEach((s, i) => T(s, dx + 16, top + 22 + i * 19, { size: 12.5, c: P.muted }));
+            const vb = [dx + dw - 116, dy + dh - 42, 100, 30], pr = t > 3.95 && t < 4.15;
+            box(vb[0], vb[1], vb[2], vb[3], { r: 8, fill: pr ? '#c8d2ca' : P.act2 });
+            T('View files', vb[0] + vb[2] / 2, vb[1] + 15.5, { size: 12.5, w: 600, c: P.bg0, al: 'center' });
+            T('Cancel', vb[0] - 34, vb[1] + 15.5, { size: 12.5, c: P.faint, al: 'center' });
+          }
+        });
       });
-      const y2 = top + 52;
-      if (t > 4.3 && t < 5.1) { spinner(sx + 24, y2, 7, t, P.act2); T('resolveScanPath(): checking the path', sx + 40, y2, { size: 12.5, f: 'm', c: P.muted, max: sw - 56 }); }
-      if (t >= 5.1) {
-        badge(sx + 24, y2, 8, P.ok, 'ok', k(t, 5.1, 5.5));
-        T(t < 6.0 ? 'inside the scan root: OK' : 'inside the scan root: walking files', sx + 40, y2, { size: 12.5, f: 'm', c: P.ok, max: sw - 56, a: k(t, 5.1, 5.4) });
-      }
-    });
-
-    // scan root boundary
-    rise(k(t, 3.5, 4.2), () => {
-      const ants = t > 4.2 && t < 5.4 ? -(t - 4.2) * 30 : 0;
-      box(rx, ry, rw, rh, { r: 18, fill: rgba(P.act, 0.05), stroke: P.act2, sa: 0.55, dash: [7, 6], off: ants, lw: 1.5 });
-      icon('lock', rx + 26, ry + 26, 16, P.act2);
-      T('Scan root', rx + 42, ry + 26, { size: 13, w: 600 });
-      T(ROOTP, rx + 42 + TW('Scan root', { size: 13, w: 600 }) + 10, ry + 26, { size: 12, f: 'm', c: P.faint, max: rw - 140 });
-    }, 0);
-
-    // the path resolves to a folder inside the root
-    const src = WIDE ? [sx + sw, sy + 60] : [sx + sw * 0.7, sy + sh], dst = [rx + 22, L.row0];
-    const ctl = WIDE ? [mix(src[0], dst[0], 0.5), Math.min(src[1], dst[1]) + 10] : [rx + 40, (src[1] + dst[1]) / 2];
-    curve(src, ctl, dst, { p: E.io(k(t, 4.3, 5.0)), c: t > 5.0 ? P.ok : P.act2, lw: 2, dash: [5, 5], off: -t * 24, a: 1 - k(t, 6.8, 7.4) * 0.6 });
-    packet(src, ctl, dst, E.io(k(t, 4.3, 5.0)), P.act2, { r: 4 });
-
-    // request travels from the page to the server
-    const ra = [btn[0] + btn[2] / 2, btn[1] + btn[3]], rb = [sx + sw / 2, sy], rc = WIDE ? [ra[0] - 20, (ra[1] + rb[1]) / 2 + 10] : [ra[0] - 60, (ra[1] + rb[1]) / 2];
-    const rp = E.io(k(t, 3.15, 4.15));
-    const q = packet(ra, rc, rb, rp, P.act2, { r: 5 });
-    if (q) pill(q[0] + 14, q[1], 'POST /scans', { h: 22, size: 11.5, c: P.act2, fill: rgba(P.bg0, 0.9), stroke: rgba(P.act2, 0.6) });
-
-    // a path that climbs out of the root is rejected
-    if (t > 5.4 && t < 7.6) {
-      const from = WIDE ? [sx + sw - 10, sy + sh - 18] : [sx + sw - 40, sy + sh - 10];
-      const hit = WIDE ? [rx - 4, ry + rh * 0.78] : [rx + rw * 0.62, ry - 4];
-      const go = E.in(k(t, 5.4, 6.0)), back = E.out(k(t, 6.0, 6.7));
-      const bx = WIDE ? hit[0] - 56 : hit[0] - 40, by = WIDE ? hit[1] + 10 : hit[1] - 26;
-      let x = mix(from[0], hit[0], go), y = mix(from[1], hit[1], go);
-      if (t > 6.0) { x = mix(hit[0], bx, back) + shake(t, 6.0, 6.5, 5); y = mix(hit[1], by, back); }
-      const a = 1 - k(t, 7.0, 7.6);
-      const lbl = '..\\..\\Windows';
-      const w = TW(lbl, { size: 12, f: 'm', w: 500 }) + 20;
-      pill(x - w, y, lbl, { h: 24, c: P.crit, fill: rgba(P.crit, 0.16), stroke: rgba(P.crit, 0.6), a });
-      if (t > 6.0) {
-        ripple(hit[0], hit[1], k(t, 6.0, 6.6), P.crit, 40);
-        badge(hit[0], hit[1], 10, P.crit, 'no', k(t, 6.0, 6.4), a);
-        const ly = WIDE ? hit[1] + 46 : hit[1] - 22;
-        T(WIDE ? '400: path must be inside the scan root' : '400: outside the root', WIDE ? hit[0] - 6 : hit[0] + 18, ly, { size: 12, f: 'm', c: P.crit, al: WIDE ? 'right' : 'left', a: a * k(t, 6.05, 6.3) });
-      }
+    }
+    // the pointer that does the clicking
+    if (t > 0.6 && t < 4.6) {
+      const sel = [dx + 70, dy + 44 + 18 + 3 * 27], selBtn = [dx + dw - 60, dy + dh - 27], view = [dx + dw - 66, dy + dh - 27];
+      const pts = [[[ax + aw * 0.7, ay + ah + 40], [btn[0] + btn[2] * 0.5, btn[1] + 22], 0.7, 1.45], [null, sel, 2.2, 2.6], [null, selBtn, 2.85, 3.25], [null, view, 3.5, 3.95]];
+      let x = pts[0][0][0], y = pts[0][0][1], prev = pts[0][0];
+      for (const [from, to, a, b] of pts) { const f = from || prev, p = E.io(k(t, a, b)); if (t >= a) { x = mix(f[0], to[0], p); y = mix(f[1], to[1], p); } prev = to; }
+      const press = (t > 1.45 && t < 1.7) || (t > 2.6 && t < 2.75) || (t > 3.25 && t < 3.45) || (t > 3.95 && t < 4.15) ? 1 : 0;
+      pointer(x, y, press, k(t, 0.6, 0.9) * (1 - k(t, 4.3, 4.6)));
     }
 
-    // file tree, then the walker
-    const walk = (t - 7.0) / 0.27;
+    // the walk, in the browser
+    rise(k(t, 4.2, 4.7), () => {
+      card(tx, ty, tw, th, { title: 'In your browser', icon: 'folder', tag: 'picker.js' });
+    });
+    const walk = (t - 4.8) / 0.25;
     TREE.forEach(([name, depth, kind], i) => {
-      const y = L.row0 + i * L.rowH, x = rx + 24 + depth * 22;
-      const ap = k(t, 5.0 + i * 0.1, 5.4 + i * 0.1);
+      const y = rowY(i), x = tx + 22 + depth * 20;
+      const ap = k(t, 4.5 + i * 0.05, 4.9 + i * 0.05);
       if (ap <= 0) return;
       const passed = walk > i + 0.6, at = walk > i - 0.4 && walk < i + 0.6;
+      const fs = WIDE ? 12.5 : 12;
       fade(ap, () => {
-        ctx.save(); ctx.translate((1 - E.out(ap)) * 16, 0);
         let alpha = 1;
-        if (passed && kind === 'file') alpha = 0.5;
+        if (passed && kind === 'file') alpha = 0.45;
         if (passed && kind === 'dir') alpha = 0.7;
-        if (at) box(rx + 12, y - L.rowH / 2 + 2, rw - 24, L.rowH - 4, { r: 8, fill: rgba(P.act, 0.18), stroke: rgba(P.act2, 0.5) });
+        if (at) box(tx + 10, y - L.rowH / 2 + 1, tw - 20, L.rowH - 2, { r: 6, fill: rgba(P.act, 0.16), stroke: rgba(P.act2, 0.45) });
         if (kind === 'lock' && walk > i - 0.2) {
           const g = k(walk, i - 0.2, i + 0.4);
-          box(rx + 12, y - L.rowH / 2 + 2, rw - 24, L.rowH - 4, { r: 8, fill: rgba(P.act, 0.22 * g), stroke: P.act2, sa: g, glow: P.act, gb: 16, ga: g * 0.5 });
+          box(tx + 10, y - L.rowH / 2 + 1, tw - 20, L.rowH - 2, { r: 6, fill: rgba(P.act, 0.2 * g), stroke: P.act2, sa: g, glow: P.act, gb: 14, ga: g * 0.4 });
         }
         const isDir = kind === 'dir' || kind === 'skip';
-        icon(isDir ? 'folder' : 'file', x + 8, y, 15, kind === 'lock' ? P.act2 : kind === 'skip' && passed ? P.faint : P.muted, alpha);
-        T(name + (isDir ? '/' : ''), x + 24, y + 0.5, { size: WIDE ? 13 : 13.5, f: 'm', w: kind === 'lock' ? 600 : 400, c: kind === 'lock' && walk > i - 0.2 ? P.text : P.muted, a: alpha });
-        const nameW = TW(name + (isDir ? '/' : ''), { size: WIDE ? 13 : 13.5, f: 'm', w: kind === 'lock' ? 600 : 400 });
+        icon(isDir ? 'folder' : 'file', x + 7, y, 13, kind === 'lock' ? P.act2 : kind === 'skip' && passed ? P.faint : P.muted, alpha);
+        const label = name + (isDir ? '/' : '');
+        T(label, x + 21, y + 0.5, { size: fs, f: 'm', w: kind === 'lock' ? 600 : 400, c: kind === 'lock' && walk > i - 0.2 ? P.text : P.muted, a: alpha });
         if (kind === 'skip' && walk > i - 0.2) {
           const s = k(walk, i - 0.2, i + 0.3);
-          line(x + 22, y + 1, x + 26 + nameW, y + 1, { c: P.faint, lw: 1.5, p: s });
-          pill(rx + rw - 22, y, 'skipped', { al: 'right', h: 20, size: 11, c: P.faint, a: s });
+          line(x + 19, y + 1, x + 23 + TW(label, { size: fs, f: 'm' }), y + 1, { c: P.faint, lw: 1.2, p: s });
+          pill(tx + tw - 18, y, 'not opened', { al: 'right', h: 18, size: 10.5, c: P.faint, a: s });
         }
-        if (kind === 'lock' && walk > i - 0.2) pill(rx + rw - 22, y, 'lockfile', { al: 'right', h: 20, size: 11, c: P.act2, a: k(walk, i - 0.2, i + 0.3), dot: true });
-        ctx.restore();
+        if (kind === 'lock' && walk > i - 0.2) pill(tx + tw - 18, y, 'lockfile', { al: 'right', h: 18, size: 10.5, c: P.act2, a: k(walk, i - 0.2, i + 0.3), dot: true });
       });
     });
-    if (t > 10.0) {
-      const p = k(t, 10.0, 10.5);
-      rise(p, () => T('Found 2 lockfiles, skipped 2 folders', rx + rw / 2, ry + rh - (WIDE ? 22 : 18), { size: 12.5, w: 600, c: P.text, al: 'center' }), 6);
+    if (t > 7.6) rise(k(t, 7.6, 8.0), () => T('2 lockfiles found, 2 folders not opened', tx + tw / 2, ty + th - (WIDE ? 14 : 11), { size: 12, w: 600, c: P.text, al: 'center' }), 4);
+
+    // the two lockfiles fly to the page and are packed with gzip
+    const chipX = [ax + 16, ax + 16 + (WIDE ? 104 : 96)];
+    LOCKS.forEach(([n, size, row], j) => {
+      const p = E.io(k(t, 7.8 + j * 0.2, 8.5 + j * 0.2));
+      if (p <= 0) return;
+      const from = [tx + 40, rowY(row)], to = [chipX[j], payY], c = [mix(from[0], to[0], 0.5), Math.min(from[1], to[1]) - 50];
+      const q = p < 1 ? qpt(from, c, to, p) : to;
+      const packed = k(t, 8.9, 9.3);
+      const lbl = j === 0 ? n + '  ' + size : (WIDE ? n + '  ' + size : 'package-lock  ' + size);
+      fade(1 - packed, () => pill(q[0], q[1], lbl, { h: 22, size: 10.5, c: P.act2, fill: rgba(P.bg0, 0.9), stroke: rgba(P.act2, 0.5) }));
+    });
+    const gz = k(t, 8.9, 9.3);
+    if (gz > 0) {
+      pop(gz, ax + 100, payY, () => pill(ax + 16, payY, 'gzip  2 files  8.9 KB', { h: 24, size: 11, c: P.ok, dot: true }));
+      T('only these leave the page', ax + 16 + TW('gzip  2 files  8.9 KB', { size: 11, f: 'm', w: 500 }) + 44, payY, { size: 11.5, c: P.faint, a: k(t, 9.1, 9.5) });
     }
+    // and travel to the server
+    const pa = [ax + 90, payY + 12], pb = [sx + sw / 2, sy], pc = [ax + aw * 0.75, (pa[1] + pb[1]) / 2];
+    const pp = E.io(k(t, 9.3, 9.9));
+    const q = packet(pa, pc, pb, pp, P.act2, { r: 4.5 });
+    if (q) pill(q[0] + 12, q[1], 'POST /scans/upload', { h: 20, size: 10.5, c: P.act2, fill: rgba(P.bg0, 0.92), stroke: rgba(P.act2, 0.5) });
+
+    // what the server does with them
+    rise(k(t, 8.6, 9.1), () => {
+      const top = card(sx, sy, sw, sh, { title: 'depscan server', icon: 'server', tag: 'internal/api/upload.go' });
+      const step = WIDE ? 34 : 30, fs = WIDE ? 12.5 : 12;
+      const rows = [
+        [9.9, null, 'POST /scans/upload', 'gzip'],
+        [10.3, 10.3, 'Paths checked: relative, no "..", lockfiles only'],
+        [10.9, 10.9, 'Written to a private temp folder'],
+        [11.3, 12.3, 'engine.Run: the same scan as a path scan'],
+        [12.6, 12.6, 'Temp folder deleted, result saved']
+      ];
+      rows.forEach(([at, ok, s, tag], i) => {
+        const y = top + 22 + i * step, a = k(t, at, at + 0.3);
+        if (a <= 0) return;
+        fade(a, () => {
+          if (ok == null) { runs([['POST ', P.act2], ['/scans/upload', P.text]], sx + 16, y, { size: fs, f: 'm', w: 500 }); pill(sx + sw - 16, y, 'Content-Encoding: ' + tag, { al: 'right', h: 20, size: 10.5, c: P.faint }); return; }
+          if (t < ok) spinner(sx + 24, y, 7, t, P.act2); else badge(sx + 24, y, 8, P.ok, 'ok', k(t, ok, ok + 0.35));
+          T(s, sx + 42, y + 0.5, { size: fs, c: t < ok ? P.muted : P.text, max: sw - 60 });
+        });
+      });
+      // a path that tries to climb out is refused
+      if (t > 10.4 && t < 11.9) {
+        const y = top + 22 + 1 * step + (WIDE ? 18 : 16), a = k(t, 10.4, 10.6) * (1 - k(t, 11.5, 11.9));
+        const xx = sx + 42 + shake(t, 10.8, 11.2, 4);
+        pill(xx, y, '../../.ssh/go.mod', { h: 18, size: 10.5, c: P.crit, stroke: rgba(P.crit, 0.6), a });
+        if (t > 10.8) T('400: not a plain relative path', xx + TW('../../.ssh/go.mod', { size: 10.5, f: 'm', w: 500 }) + 30, y + 0.5, { size: 11, f: 'm', c: P.crit, a: a * k(t, 10.8, 11.0) });
+      }
+    });
+
+    // what left your machine, and what did not
+    if (L.note) {
+      const [nx, ny, nw, nh] = L.note;
+      rise(k(t, 12.4, 12.9), () => {
+        const top = card(nx, ny, nw, nh, { title: 'What left the browser', icon: 'lock', tag: '8.9 KB' });
+        [['Sent', 'go.mod and package-lock.json, nothing else', P.ok], ['Not sent', 'your source code, .git, node_modules', P.faint], ['Where to', 'the depscan server on this computer', P.act2]].forEach(([kk, v, c], i) => {
+          const y = top + 20 + i * 26;
+          T(kk, nx + 16, y, { size: 11.5, w: 600, c });
+          T(v, nx + 96, y, { size: 12, c: P.muted, max: nw - 112 });
+        });
+      });
+    } else if (t > 12.4) T('Only the two lockfiles left the browser.', 240, 712, { size: 12, c: P.muted, al: 'center', a: k(t, 12.4, 12.8) });
   }
 
   /* ======================= 2. read the lockfiles ======================= */
@@ -728,7 +775,7 @@
       const p = k(t, 9.4, 9.9);
       const x = WIDE ? 480 : 464, y = WIDE ? 468 : 30, al = WIDE ? 'center' : 'right';
       rise(p, () => {
-        T(Math.round(73 * E.out(k(t, 9.4, 10.4))) + '%', x, y, { size: WIDE ? 46 : 30, w: 800, f: 'd', c: P.med, al });
+        T(Math.round(73 * E.out(k(t, 9.4, 10.4))) + '%', x, y, { size: WIDE ? 46 : 30, w: 300, f: 'd', c: P.med, al });
         T(WIDE ? 'of the packages you ship are transitive' : 'transitive', x, y + (WIDE ? 36 : 24), { size: WIDE ? 12.5 : 11.5, c: P.muted, al });
       }, 8);
     }
@@ -1071,7 +1118,7 @@
       const x = WIDE ? 936 : 464, y = WIDE ? 30 : 0;
       if (WIDE) {
         T('advisories', x, y + 6, { size: 12, c: P.muted, al: 'right', a: k(t, 0.4, 0.8) });
-        T(String(n), x - TW('advisories', { size: 12 }) - 10, y + 4, { size: 26, w: 800, f: 'd', c: cp >= 1 ? P.ok : P.text, al: 'right', a: k(t, 0.4, 0.8) });
+        T(String(n), x - TW('advisories', { size: 12 }) - 10, y + 4, { size: 26, w: 300, f: 'd', c: cp >= 1 ? P.ok : P.text, al: 'right', a: k(t, 0.4, 0.8) });
       }
     }
     // the key example
@@ -1101,7 +1148,7 @@
         const p = k(t, 8.0 + i * 0.45, 8.4 + i * 0.45), y = 330 + i * 46;
         rise(p, () => {
           box(24, y - 18, 912, 36, { r: 10, fill: rgba(P.panel, 0.8), stroke: P.line });
-          dot(46, y, 11, P.act); T(String(i + 1), 46, y + 0.5, { size: 12, w: 700, c: '#fff', al: 'center' });
+          dot(46, y, 11, P.act); T(String(i + 1), 46, y + 0.5, { size: 12, w: 700, c: P.bg0, al: 'center' });
           T(s, 66, y + 0.5, { size: 13, c: P.text });
         }, 8);
       });
@@ -1166,7 +1213,7 @@
       rise(k(t, 0.4 + li * 0.1, 0.9 + li * 0.1), () => {
         box(x, y, w, L.laneH, { r: 14, fill: rgba(OUTC[out], 0.06), stroke: rgba(OUTC[out], 0.35) });
         T(out === 'block' ? 'Blocks the build' : out === 'warn' ? 'Warns' : 'Allowed', x + 14, y + 22, { size: WIDE ? 13 : 12, w: 600, c: OUTC[out] });
-        T(String(n), x + w - 14, y + 22, { size: WIDE ? 20 : 17, w: 800, f: 'd', c: OUTC[out], al: 'right' });
+        T(String(n), x + w - 14, y + 22, { size: WIDE ? 20 : 17, w: 300, f: 'd', c: OUTC[out], al: 'right' });
       });
     });
     // items
@@ -1246,13 +1293,13 @@
       dot(vx + 5, vy, 5, P.crit); ring(vx + 5, vy, 9, P.crit, 0.35, 3);
       T('Blocked', vx + 18, vy + 0.5, { size: 13, w: 600, c: P.crit });
     });
-    const words = 'This build would be blocked'.split(' ');
+    const words = 'This build is blocked'.split(' ');
     let wx = vx;
-    const hs = WIDE ? 36 : 28;
+    const hs = WIDE ? 40 : 30;
     words.forEach((w, i) => {
       const p = k(t, 0.3 + i * 0.08, 0.8 + i * 0.08);
-      if (p > 0) { ctx.save(); rr(wx - 2, vy + 12, TW(w, { size: hs, w: 800, f: 'd' }) + 4, hs + 14, 0); ctx.clip(); T(w, wx, vy + 22 + hs / 2 + (1 - E.out(p)) * hs, { size: hs, w: 800, f: 'd', bl: 'middle' }); ctx.restore(); }
-      wx += TW(w + ' ', { size: hs, w: 800, f: 'd' });
+      if (p > 0) { ctx.save(); rr(wx - 2, vy + 12, TW(w, { size: hs, w: 300, f: 'd' }) + 4, hs + 14, 0); ctx.clip(); T(w, wx, vy + 22 + hs / 2 + (1 - E.out(p)) * hs, { size: hs, w: 300, f: 'd', bl: 'middle' }); ctx.restore(); }
+      wx += TW(w + ' ', { size: hs, w: 300, f: 'd' });
     });
     T(WIDE ? '6 packages break your policy. Upgrade them to pass.' : '6 packages break your policy.', vx, vy + 22 + hs + 22, { size: 13.5, c: P.muted, a: k(t, 0.9, 1.3) });
     const facts = [['22', 'Dependencies'], ['6', 'Direct'], ['6', 'With advisories'], ['6', 'Blocking']];
@@ -1260,7 +1307,7 @@
       const x = vx + i * (WIDE ? 128 : 110), y = vy + 22 + hs + 66, p = k(t, 1.0 + i * 0.1, 1.5 + i * 0.1);
       rise(p, () => {
         if (i) box(x - 14, y - 16, 1, 46, { r: 0, fill: P.line });
-        T(String(Math.round(+n * E.out(k(t, 1.0, 2.0)))), x, y, { size: WIDE ? 28 : 24, w: 800, f: 'd', c: i === 3 ? P.crit : P.text });
+        T(String(Math.round(+n * E.out(k(t, 1.0, 2.0)))), x, y, { size: WIDE ? 28 : 24, w: 300, f: 'd', c: i === 3 ? P.crit : P.text });
         T(l, x, y + 26, { size: 11.5, c: P.muted });
       }, 6);
     });
@@ -1271,9 +1318,9 @@
       glow(cx, cy + cs, cs * 4, P.act, 0.35);
       const P0 = pt(-0.35, -0.35, 0), P1 = pt(3.35, -0.35, 0), P2 = pt(3.35, 2.35, 0), P3 = pt(-0.35, 2.35, 0), th = 8;
       const plate = rgba(P.ok, 0.2);
-      A(); ctx.fillStyle = '#0F3B45'; ctx.beginPath(); ctx.moveTo(P3[0], P3[1]); ctx.lineTo(P2[0], P2[1]); ctx.lineTo(P2[0], P2[1] + th); ctx.lineTo(P3[0], P3[1] + th); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#0B2C35'; ctx.beginPath(); ctx.moveTo(P1[0], P1[1]); ctx.lineTo(P2[0], P2[1]); ctx.lineTo(P2[0], P2[1] + th); ctx.lineTo(P1[0], P1[1] + th); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#145060'; ctx.beginPath(); ctx.moveTo(P0[0], P0[1]); ctx.lineTo(P1[0], P1[1]); ctx.lineTo(P2[0], P2[1]); ctx.lineTo(P3[0], P3[1]); ctx.closePath(); ctx.fill();
+      A(); ctx.fillStyle = '#1c3328'; ctx.beginPath(); ctx.moveTo(P3[0], P3[1]); ctx.lineTo(P2[0], P2[1]); ctx.lineTo(P2[0], P2[1] + th); ctx.lineTo(P3[0], P3[1] + th); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#142419'; ctx.beginPath(); ctx.moveTo(P1[0], P1[1]); ctx.lineTo(P2[0], P2[1]); ctx.lineTo(P2[0], P2[1] + th); ctx.lineTo(P1[0], P1[1] + th); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#244436'; ctx.beginPath(); ctx.moveTo(P0[0], P0[1]); ctx.lineTo(P1[0], P1[1]); ctx.lineTo(P2[0], P2[1]); ctx.lineTo(P3[0], P3[1]); ctx.closePath(); ctx.fill();
       ctx.strokeStyle = plate; ctx.lineWidth = 1; ctx.stroke();
       // draw back to front
       const order = TOWERS.map((tw, i) => i).sort((a, b) => (CELLS[a][0] + CELLS[a][1]) - (CELLS[b][0] + CELLS[b][1]));
@@ -1316,7 +1363,7 @@
         T('$ ' + cmd, fx + 28, cy0 + 0.5, { size: WIDE ? 12.5 : 11.5, f: 'm', c: P.text, max: fw - 32 - bw - 26 });
         const pressed = t > 7.65 && t < 7.9;
         box(bx - 4, cy0 - 13, bw, 26, { r: 7, fill: pressed ? P.act : rgba(P.act, 0.2), stroke: rgba(P.act2, 0.5) });
-        T(t > 7.8 && t < 9.8 ? 'Copied' : 'Copy', bx - 4 + bw / 2, cy0 + 0.5, { size: 12, w: 600, c: pressed ? '#fff' : P.act2, al: 'center' });
+        T(t > 7.8 && t < 9.8 ? 'Copied' : 'Copy', bx - 4 + bw / 2, cy0 + 0.5, { size: 12, w: 600, c: pressed ? P.bg0 : P.act2, al: 'center' });
         ripple(bx - 4 + bw / 2, cy0, k(t, 7.7, 8.3), P.act2, 36);
       });
       // pointer
@@ -1350,7 +1397,235 @@
     }
   }
 
-  /* ======================= 9. seal the report ======================= */
+  /* ======================= 9. review a license ======================= */
+  // One side sheet, drawn for either review. lt is the time inside that review.
+  function reviewSheet(x, y, w, h, R, lt) {
+    const top = card(x, y, w, h, { title: R.name, icon: 'doc', tag: R.kicker, tagc: R.c, tf: 'm', ts: 13, fill: P.panel2 });
+    let cy = top + 18;
+    const sec = (s) => { dot(x + 20, cy, 3, P.brand); T(s.toUpperCase(), x + 30, cy + 0.5, { size: 10, w: 600, c: P.text }); cy += 20; };
+    sec('Why it is flagged');
+    wrap(R.why, w - 36, { size: 12 }).forEach((s) => { T(s, x + 18, cy, { size: 12, c: P.muted }); cy += 17; });
+    cy += 8;
+    if (R.steps) {
+      sec('Find the real license');
+      R.steps.forEach((s, i) => {
+        const p = k(lt, 0.5 + i * 0.45, 0.8 + i * 0.45);
+        T('0' + (i + 1), x + 18, cy, { size: 15, w: 300, f: 'd', c: P.text, a: 0.4 + p * 0.6 });
+        T(s, x + 46, cy + 0.5, { size: 12, c: p > 0.5 ? P.text : P.muted, max: w - 90 });
+        badge(x + w - 26, cy, 7, P.ok, 'ok', k(lt, 0.7 + i * 0.45, 1.0 + i * 0.45));
+        cy += WIDE ? 24 : 22;
+      });
+      cy += 6;
+    } else {
+      sec('Who pulls it in');
+      box(x + 16, cy - 12, w - 32, 26, { r: 7, fill: P.bg0, stroke: P.line });
+      T('$ ' + R.who, x + 26, cy + 1, { size: 11.5, f: 'm', c: P.text, max: w - 52 });
+      cy += 32;
+    }
+    sec('Record your decision');
+    // the license you found
+    box(x + 16, cy - 13, w * 0.42, 28, { r: 7, fill: P.bg0, stroke: lt > R.typeAt && lt < R.typeAt + 1.2 ? P.act : P.line });
+    const typedLic = typed(R.lic, k(lt, R.typeAt, R.typeAt + 0.7));
+    T(typedLic || 'SPDX ID', x + 26, cy + 1, { size: 12, f: 'm', c: typedLic ? P.text : P.faint });
+    const ev = k(lt, R.typeAt + 0.8, R.typeAt + 1.1);
+    if (ev > 0) {
+      const ex = x + 24 + w * 0.42;
+      const fw = pill(ex, cy, R.fam, { h: 20, size: 10.5, c: R.famC, f: 's', w: 600, a: ev });
+      pill(ex + fw + 6, cy, R.eval, { h: 20, size: 10.5, c: R.evalC, f: 's', w: 600, a: ev });
+    }
+    cy += 34;
+    // approve, reject, needs legal
+    const opts = [['Approve', P.ok], ['Reject', P.crit], ['Needs legal', P.med]], ow = (w - 32 - 16) / 3;
+    opts.forEach(([s, c], i) => {
+      const bx = x + 16 + i * (ow + 8), on = lt > R.decideAt && s === R.decision;
+      box(bx, cy - 15, ow, 30, { r: 7, fill: on ? rgba(c, 0.16) : null, stroke: on ? c : P.line2 });
+      dot(bx + 14, cy, 4, c, on ? 1 : 0.5);
+      T(s, bx + 24, cy + 0.5, { size: 12, w: 600, c: on ? P.text : P.muted });
+    });
+    const decide = [x + 16 + opts.findIndex((o) => o[0] === R.decision) * (ow + 8) + ow / 2, cy];
+    ripple(decide[0], decide[1], k(lt, R.decideAt, R.decideAt + 0.5), P.act2, 40);
+    cy += 32;
+    box(x + 16, cy - 13, w - 32, 28, { r: 7, fill: P.bg0, stroke: lt > R.noteAt && lt < R.noteAt + 1.1 ? P.act : P.line });
+    const nt = typed(R.note, k(lt, R.noteAt, R.noteAt + 0.9));
+    T(nt || 'Note: where you found it', x + 26, cy + 1, { size: 12, c: nt ? P.text : P.faint, max: w - 52 });
+    // save
+    const save = [x + w - 16 - 120, y + h - 44, 120, 30], pressed = lt > R.saveAt && lt < R.saveAt + 0.2;
+    box(save[0], save[1], save[2], save[3], { r: 15, fill: pressed ? '#c8d2ca' : P.act2 });
+    T(lt > R.saveAt + 0.2 ? 'Saved' : 'Save review', save[0] + save[2] / 2, save[1] + 15.5, { size: 12, w: 600, c: P.bg0, al: 'center' });
+    T('Kept in this browser', x + 18, save[1] + 15.5, { size: 11.5, c: P.faint, a: k(lt, R.saveAt + 0.2, R.saveAt + 0.5) });
+    return { decide, save: [save[0] + save[2] / 2, save[1] + 15] };
+  }
+  const REV = [
+    {
+      id: 'uikit', name: '@shop/ui-kit@2.3.0', kicker: 'unknown', c: P.med, why: 'deps.dev has no license for this version. block_unknown_license is off, so it warns.',
+      steps: ['Open the npm page for this version', 'Check the repository for a LICENSE file', 'Compare with deps.dev for newer versions', 'Your own package? Use your company license'],
+      lic: 'MIT', typeAt: 2.4, fam: 'Permissive', famC: P.ok, eval: 'Allowed by your policy', evalC: P.ok, decision: 'Approve', decideAt: 3.5, note: 'LICENSE file in the repository root', noteAt: 3.8, saveAt: 5.0
+    },
+    {
+      id: 'ffmpeg', name: 'ffmpeg-static@5.2.0', kicker: 'denied', c: P.crit, why: 'deps.dev reports GPL-3.0-or-later, which is on your denied_licenses list, so it blocks the build.',
+      who: 'npm explain ffmpeg-static', lic: 'GPL-3.0-or-later', typeAt: 0.6, fam: 'Strong copyleft', famC: P.med, eval: 'Denied by your policy', evalC: P.crit, decision: 'Reject', decideAt: 1.6, note: 'Replace with the system ffmpeg binary', noteAt: 1.9, saveAt: 2.9
+    }
+  ];
+  function sc9r(t) {
+    const L = WIDE ? { list: [24, 24, 430, 512], sheet: [470, 24, 466, 512] } : { list: [16, 16, 448, 250], sheet: [16, 278, 448, 426] };
+    const [lx, ly, lw, lh] = L.list;
+    const r1 = [1.2, 8.0], r2 = [8.6, 12.0]; // when each review's sheet is open
+    const done1 = t > r1[0] + REV[0].saveAt + 0.3, done2 = t > r2[0] + REV[1].saveAt + 0.3;
+    // the Licenses tab
+    rise(k(t, 0, 0.5), () => {
+      const top = card(lx, ly, lw, lh, { title: 'Licenses', icon: 'shield', tag: '2 to review', tagc: P.med });
+      // review progress ring
+      const n = (done1 ? 1 : 0) + (done2 ? 1 : 0), rp = n / 2;
+      const rcx = lx + 30, rcy = top + 30;
+      ring(rcx, rcy, 13, P.line2, 1, 3);
+      if (rp > 0) { A(); ctx.strokeStyle = P.ok; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(rcx, rcy, 13, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * rp); ctx.stroke(); }
+      T(n + ' of 2 flagged licenses reviewed', lx + 54, rcy + 0.5, { size: 12.5, c: P.text });
+      const rows = [
+        ['Blocks the build', P.crit, REV[1], 'GPL-3.0-or-later', done2 ? ['Rejected', P.crit] : null],
+        ['Needs a review', P.med, REV[0], 'no license on deps.dev', done1 ? ['Approved: MIT', P.ok] : null]
+      ];
+      let y = rcy + (WIDE ? 50 : 38);
+      rows.forEach(([g, c, R, sub, st], i) => {
+        dot(lx + 20, y, 3.5, c); T(g.toUpperCase(), lx + 30, y + 0.5, { size: 10, w: 600, c: P.text });
+        y += WIDE ? 26 : 22;
+        const active = (i === 0 && t > r2[0] && t < r2[1]) || (i === 1 && t > r1[0] && t < r1[1]);
+        if (active) box(lx + 10, y - 16, lw - 20, 34, { r: 7, fill: rgba(P.act, 0.14), stroke: rgba(P.act2, 0.4) });
+        box(lx + 16, y - 12, 2, 24, { r: 1, fill: c });
+        T(R.name, lx + 26, y - 5, { size: 12.5, f: 'm', w: 500 });
+        T(sub, lx + 26, y + 10, { size: 11, c: P.faint });
+        if (st) pop(k(t, (i === 0 ? r2[0] + REV[1].saveAt : r1[0] + REV[0].saveAt) + 0.3, (i === 0 ? r2[0] + REV[1].saveAt : r1[0] + REV[0].saveAt) + 0.7), lx + lw - 60, y, () => pill(lx + lw - 18, y, st[0], { al: 'right', h: 20, size: 10.5, c: st[1], f: 's', w: 600 }));
+        else pill(lx + lw - 18, y, 'Review', { al: 'right', h: 22, size: 10.5, c: P.act2, f: 's', w: 600, stroke: rgba(P.act2, 0.4), fill: 'rgba(0,0,0,0)' });
+        y += WIDE ? 44 : 34;
+      });
+      if (WIDE) {
+        fade(k(t, 12.2, 12.7), () => {
+          const yy = ly + lh - 92;
+          box(lx + 16, yy - 4, lw - 32, 1, { r: 0, fill: P.line });
+          T('Export the decisions for your pull request:', lx + 18, yy + 18, { size: 12, c: P.muted });
+          pill(lx + 18, yy + 48, 'review-log.csv', { h: 24, size: 11, c: P.act2, dot: true });
+          pill(lx + 160, yy + 48, 'Copy as Markdown', { h: 24, size: 11, c: P.act2, f: 's', w: 600 });
+        });
+      }
+    });
+    // the review sheet, twice
+    const [sx, sy, sw, sh] = L.sheet;
+    [[REV[0], r1], [REV[1], r2]].forEach(([R, [a, b]]) => {
+      if (t < a || t > b + 0.4) return;
+      const inP = E.out(k(t, a, a + 0.45)), outP = E.in(k(t, b, b + 0.4));
+      const dxx = WIDE ? (1 - inP) * 60 + outP * 60 : 0, dyy = WIDE ? 0 : (1 - inP) * 40 + outP * 40;
+      fade(inP * (1 - outP), () => {
+        ctx.save(); ctx.translate(dxx, dyy);
+        const pts = reviewSheet(sx, sy, sw, sh, R, t - a);
+        // the pointer presses the decision and save
+        const lt = t - a;
+        if (lt > R.decideAt - 0.6 && lt < R.saveAt + 0.6) {
+          const dp = pts.decide, sp = pts.save;
+          const m1 = E.io(k(lt, R.decideAt - 0.6, R.decideAt)), m2 = E.io(k(lt, R.saveAt - 0.6, R.saveAt));
+          const px0 = mix(sx + sw * 0.5, dp[0], m1), py0 = mix(sy + sh + 20, dp[1], m1);
+          pointer(mix(px0, sp[0], m2), mix(py0, sp[1], m2), (lt > R.decideAt && lt < R.decideAt + 0.2) || (lt > R.saveAt && lt < R.saveAt + 0.2) ? 1 : 0, k(lt, R.decideAt - 0.6, R.decideAt - 0.3) * (1 - k(lt, R.saveAt + 0.3, R.saveAt + 0.6)));
+        }
+        ctx.restore();
+      });
+    });
+    if (!WIDE && t > 12.2) T('Export the decisions as CSV or Markdown.', 240, 712, { size: 12, c: P.muted, al: 'center', a: k(t, 12.2, 12.6) });
+  }
+
+  /* ======================= 10. keep history, compare ======================= */
+  const SPARK = [[9, 'block'], [9, 'block'], [5, 'block'], [3, 'warn']];
+  function sc9h(t) {
+    const L = WIDE
+      ? { verdict: [24, 24, 440, 180], diff: [480, 24, 456, 300], hist: [24, 220, 440, 316], store: [480, 340, 456, 196] }
+      : { verdict: [16, 16, 448, 150], diff: [16, 176, 448, 230], hist: [16, 416, 448, 156], store: [16, 582, 448, 122] };
+    // the new verdict, after the upgrades
+    const [vx, vy, vw, vh] = L.verdict;
+    rise(k(t, 0, 0.5), () => {
+      const top = card(vx, vy, vw, vh, { title: 'shop-api, scanned again', icon: 'clock', tag: 'after the upgrades' });
+      const m = E.io(k(t, 1.0, 1.8));
+      const sz = WIDE ? 30 : 24;
+      fade(1 - m, () => { dot(vx + 22, top + 24, 4, P.crit); T('BLOCKED', vx + 34, top + 25, { size: sz, w: 300, f: 'd', c: P.crit }); });
+      fade(m, () => { dot(vx + 22, top + 24, 4, P.med); T('PASSES WITH WARNINGS', vx + 34, top + 25, { size: sz, w: 300, f: 'd', c: P.med, max: vw - 50 }); });
+      const facts = [['7', '0', 'Violations'], ['3', '3', 'Warnings'], ['9', '3', 'Advisories']];
+      facts.forEach(([a, b, l], i) => {
+        const x = vx + 18 + i * (WIDE ? 140 : 140), y = top + (WIDE ? 78 : 66), p = k(t, 1.6 + i * 0.15, 2.0 + i * 0.15);
+        T(m > 0.5 ? b : a, x, y, { size: WIDE ? 24 : 20, w: 300, f: 'd', c: m > 0.5 && b === '0' ? P.ok : P.text });
+        T(l, x, y + 22, { size: 11, c: P.muted, a: 0.5 + p * 0.5 });
+        if (a !== b) T(a + ' before', x + TW(m > 0.5 ? b : a, { size: WIDE ? 24 : 20, w: 300, f: 'd' }) + 10, y + 2, { size: 11, f: 'm', c: P.faint, a: p });
+      });
+    });
+    // what changed since the last scan
+    const [dx, dy, dw, dh] = L.diff;
+    rise(k(t, 2.0, 2.5), () => {
+      const top = card(dx, dy, dw, dh, { title: 'Changes since the last scan', icon: 'branch', tag: '5 fixed' , tagc: P.ok });
+      const rows = WIDE
+        ? [['x/crypto', 'v0.14.0', 'v0.35.0', '3 advisories gone'], ['jwt/v4', 'v4.5.0', 'v4.5.2', '1 gone'], ['x/net', 'v0.10.0', 'v0.17.0', '1 gone'], ['axios', '0.21.1', '0.28.0', '2 gone'], ['follow-redirects', '1.14.0', '1.15.6', '1 gone, came with axios'], ['ffmpeg-static', 'removed', '', 'license rejected in review']]
+        : [['x/crypto', 'v0.14.0', 'v0.35.0', ''], ['jwt/v4', 'v4.5.0', 'v4.5.2', ''], ['axios', '0.21.1', '0.28.0', ''], ['ffmpeg-static', 'removed', '', '']];
+      rows.forEach(([n, a, b, why], i) => {
+        const y = top + 20 + i * (WIDE ? 38 : 34), p = k(t, 2.6 + i * 0.3, 3.0 + i * 0.3);
+        rise(p, () => {
+          badge(dx + 24, y, 8, P.ok, 'ok', p);
+          T(n, dx + 42, y - (why ? 6 : 0), { size: 12.5, f: 'm', w: 600 });
+          const vx0 = dx + (WIDE ? 200 : 170);
+          if (b) {
+            T(a, vx0, y - (why ? 6 : 0), { size: 12, f: 'm', c: P.faint });
+            const aw2 = TW(a, { size: 12, f: 'm' });
+            line(vx0, y - (why ? 6 : 0), vx0 + aw2, y - (why ? 6 : 0), { c: P.faint, lw: 1.2, p: k(t, 3.0 + i * 0.3, 3.3 + i * 0.3) });
+            T(b, vx0 + aw2 + 24, y - (why ? 6 : 0), { size: 12, f: 'm', w: 600, c: P.ok });
+            line(vx0 + aw2 + 6, y - (why ? 6 : 0), vx0 + aw2 + 16, y - (why ? 6 : 0), { c: P.muted, lw: 1.2 });
+          } else T(a, vx0, y - (why ? 6 : 0), { size: 12, f: 'm', w: 600, c: P.crit });
+          if (why) T(why, dx + 42, y + 10, { size: 11, c: P.muted, max: dw - 60 });
+        }, 6);
+      });
+    });
+    // every scan of the project, newest last
+    const [hx, hy, hw, hh] = L.hist;
+    rise(k(t, 4.6, 5.1), () => {
+      const top = card(hx, hy, hw, hh, { title: 'History', icon: 'clock', tag: '4 scans' });
+      const gx = hx + 28, gw = hw - 56, gy = top + (WIDE ? 70 : 52), gh = WIDE ? 56 : 36;
+      T('Advisories per scan', hx + 18, top + 18, { size: 11.5, c: P.muted });
+      const pts = SPARK.map(([v], i) => [gx + i * gw / (SPARK.length - 1), gy + gh - v / 9 * gh]);
+      const lp = k(t, 5.2, 6.6);
+      A(); ctx.strokeStyle = P.line2; ctx.lineWidth = 1.5; ctx.beginPath();
+      pts.forEach(([x, y], i) => { const seg = c01(lp * (pts.length - 1) - (i - 1)); if (i === 0) ctx.moveTo(x, y); else if (seg > 0) ctx.lineTo(mix(pts[i - 1][0], x, seg), mix(pts[i - 1][1], y, seg)); });
+      ctx.stroke();
+      pts.forEach(([x, y], i) => { const p = k(lp, i / (pts.length - 1) - 0.05, i / (pts.length - 1) + 0.1); pop(p, x, y, () => { dot(x, y, 5, SPARK[i][1] === 'block' ? P.crit : P.med); }); T(String(SPARK[i][0]), x, y - 14, { size: 11, f: 'm', c: P.muted, al: 'center', a: p }); });
+      if (WIDE) {
+        const rows = [['Today 10:42', 'Passes with warnings', P.med], ['Today 10:31', 'Blocked', P.crit], ['Yesterday 18:05', 'Blocked', P.crit]];
+        rows.forEach(([w2, v, c], i) => {
+          const y = gy + gh + 34 + i * 26, p = k(t, 6.4 + i * 0.2, 6.8 + i * 0.2);
+          fade(p, () => { box(hx + 16, y - 13, hw - 32, 1, { r: 0, fill: P.line }); T(w2, hx + 18, y + 2, { size: 12, f: 'm', c: P.faint }); dot(hx + 170, y + 2, 3.5, c); T(v, hx + 182, y + 2.5, { size: 12, c: P.text }); });
+        });
+      }
+    });
+    // kept in the browser, through a restart
+    const [bx, by, bw, bh] = L.store;
+    rise(k(t, 7.0, 7.5), () => {
+      const top = card(bx, by, bw, bh, { title: 'Stored in this browser', icon: 'db', tag: 'IndexedDB' });
+      const off = k(t, 8.6, 9.0) * (1 - k(t, 9.8, 10.2));
+      const stores = [['scans', 4], ['reviews', 2], ['folders', 1]];
+      stores.forEach(([n, v], i) => {
+        const x = bx + 18 + i * (WIDE ? 120 : 110), y = top + (WIDE ? 26 : 22);
+        T(String(Math.round(v * E.out(k(t, 7.4, 8.2)))), x, y, { size: WIDE ? 26 : 22, w: 300, f: 'd', a: 1 - off * 0.7 });
+        T(n, x + (WIDE ? 26 : 22), y + 2, { size: 11.5, f: 'm', c: P.muted, a: 1 - off * 0.7 });
+      });
+      const ly2 = top + (WIDE ? 70 : 56);
+      if (t > 8.4 && t < 10.4) {
+        icon('gear', bx + 26, ly2, 15, P.med, k(t, 8.4, 8.7));
+        T(t < 9.8 ? 'Browser closed, server restarted…' : 'Opened again', bx + 42, ly2 + 0.5, { size: 12, c: P.med, a: k(t, 8.4, 8.7) * (1 - k(t, 10.0, 10.4)) });
+      }
+      if (t > 10.2) {
+        badge(bx + 26, ly2, 8, P.ok, 'ok', k(t, 10.2, 10.6));
+        T('Still here after a restart', bx + 42, ly2 + 0.5, { size: 12, w: 600, c: P.ok, a: k(t, 10.2, 10.5) });
+      }
+      if (WIDE && t > 11.0) {
+        fade(k(t, 11.0, 11.5), () => {
+          pill(bx + 18, ly2 + 40, 'depscan-history.json', { h: 24, size: 11, c: P.act2, dot: true });
+          T('Move it to another computer, or keep a backup.', bx + 200, ly2 + 40.5, { size: 11.5, c: P.muted, max: bw - 216 });
+        });
+      }
+    });
+  }
+
+  /* ======================= 11. seal the report ======================= */
   const hexOf = (s, n) => Array.from(new TextEncoder().encode(s).slice(0, n), (b) => b.toString(16).padStart(2, '0'));
   const BYTES = hexOf(REPORT_FAIL.join('\n'), 64);
   function sc9(t) {
@@ -1467,7 +1742,7 @@
     if (t > 12.1) {
       const [tx, ty, tw, th] = L.term;
       rise(k(t, 12.1, 12.5), () => {
-        box(tx, ty, tw, th, { r: 12, fill: '#04071A', stroke: P.line });
+        box(tx, ty, tw, th, { r: 12, fill: '#030405', stroke: P.line });
         T('$ sha256sum -c report.cdx.json.sha256', tx + 14, ty + (WIDE ? 24 : 20), { size: WIDE ? 12.5 : 11.5, f: 'm', c: P.muted, max: tw - 28 });
         T('report.cdx.json: FAILED', tx + 14, ty + (WIDE ? 52 : 44), { size: WIDE ? 15 : 13.5, f: 'm', w: 600, c: P.crit, a: k(t, 12.5, 12.7) });
         T('sha256sum: WARNING: 1 computed checksum did NOT match', tx + 14, ty + (WIDE ? 80 : 68), { size: WIDE ? 11 : 10, f: 'm', c: P.faint, a: k(t, 12.7, 12.9), max: tw - 28 });
@@ -1476,7 +1751,7 @@
     }
   }
 
-  /* ======================= 10. anchor the fingerprint (planned) ======================= */
+  /* ======================= 12. anchor the fingerprint (planned) ======================= */
   function sc10(t) {
     const L = WIDE
       ? { chip: [24, 46], chain: [150, 108, 80, 132], rcpt: [24, 300, 452, 236], ver: [494, 300, 442, 236], news: [330, 14, 420, 72] }
@@ -1568,7 +1843,7 @@
     }
   }
 
-  /* ======================= 11. check every pull request ======================= */
+  /* ======================= 13. check every pull request ======================= */
   const PRSTEPS = [
     ['Verify the signature', 'HMAC-SHA256', 2.6, 3.6],
     ['Answer 202 Accepted', 'in milliseconds', 3.6, 4.2],
@@ -1615,7 +1890,7 @@
         rise(p, () => {
           const ch = WIDE ? 128 : 92;
           box(px + 14, y0, pw - 28, ch, { r: 10, fill: P.panel2, stroke: P.line });
-          dot(px + 34, y0 + 22, 11, P.act); T('DS', px + 34, y0 + 22.5, { size: 9.5, w: 700, c: '#fff', al: 'center' });
+          dot(px + 34, y0 + 22, 11, P.brand); T('ds', px + 34, y0 + 22.5, { size: 9.5, w: 700, c: '#fff', al: 'center' });
           T('depscan commented', px + 52, y0 + 22.5, { size: 12, w: 600 });
           const rows = WIDE ? [['ffmpeg-static', 'GPL-3.0-or-later', 'denied', P.crit], ['@shop/ui-kit', 'license unknown', 'warning', P.med]] : [['ffmpeg-static', 'GPL-3.0-or-later', 'denied', P.crit]];
           rows.forEach(([n, l, s, c], i) => {
@@ -1640,7 +1915,7 @@
     // server and its steps
     const [sx, sy, sw, sh] = L.srv;
     rise(k(t, 0.6, 1.1), () => {
-      const top = card(sx, sy, sw, sh, { title: 'DepScan server', icon: 'server', tag: 'POST /webhooks/github' });
+      const top = card(sx, sy, sw, sh, { title: 'depscan server', icon: 'server', tag: 'POST /webhooks/github' });
       PRSTEPS.forEach(([s, d, a, b], i) => {
         const y = top + 24 + i * (WIDE ? 40 : 42);
         const done = t > b, now = t > a && !done;
@@ -1714,23 +1989,26 @@
   const r2 = (n) => Math.round(n * 10) / 10;
   const CH = [
     {
-      title: 'Point it at a folder', dur: 11, scene: sc1, terms: ['lockfile', 'dependency'], file: 'internal/api/handlers.go, internal/scan/engine.go',
-      p: 'You give DepScan a folder on your machine. Nothing is uploaded: the server reads the files where they are, and only inside the scan root it was started with.',
-      li: ['The path is resolved with symlinks followed, then compared with the scan root, so <code>..\\</code> tricks and links that point outside are rejected.', 'The walk skips <code>.git</code>, <code>vendor</code> and <code>node_modules</code>: they hold copies, not the dependencies you declared.'],
-      beats: [[0, 'You paste a folder path and press <b>Scan</b>.'], [3.1, 'The page sends <code>POST /scans</code> with the path to the DepScan server on your machine.'], [4.3, 'The server only reads inside its scan root, so the path is checked first.'], [5.4, 'A path that climbs out with <code>..\\</code> is rejected before any file is opened.'], [7.0, 'Then it walks the folder, skipping <code>.git</code>, <code>vendor</code> and <code>node_modules</code>.'], [9.6, 'Two lockfiles found: <code>go.mod</code> and <code>package-lock.json</code>.']],
-      code: [[3.1, 'POST /scans HTTP/1.1'], [3.1, 'Content-Type: application/json'], [3.2, '{"path": "C:\\\\Users\\\\you\\\\code\\\\shop-api"}'], [null, ''], [4.3, '// resolveScanPath'], [4.4, 'target, err := filepath.EvalSymlinks(candidate)'], [4.6, 'rel, err := filepath.Rel(h.scanRoot, target)'], [5.4, 'if err != nil || rel == ".." ||'], [5.6, '\tstrings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {'], [6.0, '\treturn "", errOutsideRoot // 400 Bad Request'], [null, '}'], [null, ''], [7.0, '// collect: walk the folder'], [7.2, 'if name == "vendor" || name == "node_modules" || name == ".git" {'], [7.3, '\treturn filepath.SkipDir'], [null, '}']]
+      title: 'Choose a folder', dur: 14, scene: sc1, terms: ['picker', 'lockfile'], file: 'web/picker.js, internal/api/upload.go',
+      p: 'You choose a project folder in the browser, from any drive. The page finds the lockfiles itself and sends only those two files, compressed, to the depscan server on your computer.',
+      li: ['The walk runs in your browser and never opens <code>.git</code>, <code>vendor</code> or <code>node_modules</code>: they hold copies, not the dependencies you declared.', 'Only <code>go.mod</code> and <code>package-lock.json</code> are sent, gzip-compressed, to <code>POST /scans/upload</code>.', 'The server checks every path, writes the files to a private temporary folder, runs the normal scan on it, then deletes the folder.'],
+      deep: ['Chrome and Edge use the File System Access API, so after you allow it once the page can scan the same folder again with one click. Firefox and Safari use a folder upload instead, and you choose the folder each time.', 'Every path must be plain and relative: no leading <code>/</code>, no <code>.</code> or <code>..</code> segments, no <code>\\</code> or <code>:</code>, and the file name must be a lockfile. Anything else is a 400 before a file is written.', 'Scanning by path still works: <code>POST /scans</code> with a folder inside the scan root the server was started with. Symlinks are resolved and checked, so a link cannot point outside it.', 'Request bodies over 1 MB are refused. If a large npm lockfile would go over, the page first trims it to the fields depscan reads.'],
+      beats: [[0, 'You choose a project folder: any folder, on any drive.'], [1.7, 'The system dialog opens and you pick <code>shop-api</code>.'], [3.45, 'The browser asks once whether this page may read the folder.'], [4.8, 'The page walks the folder itself and never opens <code>.git</code> or <code>node_modules</code>.'], [7.8, 'It takes only the two lockfiles, and gzip packs them into 8.9 KB.'], [9.3, 'They go to <code>POST /scans/upload</code> on the depscan server on your computer.'], [10.3, 'Every path is checked. One that climbs out with <code>..</code> is refused with a 400.'], [11.3, 'The server runs the same scan as a path scan, then deletes the temporary folder.']],
+      code: [[1.5, '// picker.js'], [1.6, 'const dir = await showDirectoryPicker({ id: "depscan-project", mode: "read" })'], [4.8, 'for await (const [name, h] of dir.entries()) {'], [4.9, '\tif (SKIP.has(name)) continue // .git, vendor, node_modules'], [5.0, '\tif (LOCKFILES.has(name)) found.push(h)'], [null, '}'], [8.9, 'body = gzip(JSON.stringify({ name: "shop-api", files }))'], [9.3, 'POST /scans/upload  Content-Encoding: gzip'], [null, ''], [10.3, '// upload.go: checkUploadPath'], [10.4, 'if strings.HasPrefix(p, "/") || path.Clean(p) != p {'], [10.5, '\treturn err // 400: paths must be relative'], [null, '}'], [10.6, 'if seg == "." || seg == ".." { return err }'], [10.9, 'dir, err := os.MkdirTemp(uploadTempDir, "depscan-upload-")'], [11.0, 'defer os.RemoveAll(dir)'], [11.3, 'result, err := h.engine.Run(r.Context(), dir)']]
     },
     {
       title: 'Read the lockfiles', dur: 13, scene: sc2, terms: ['lockfile', 'transitive', 'semver'], file: 'internal/parser/gomod.go, npm.go',
-      p: 'Each lockfile becomes a flat list of packages with exact versions. DepScan never runs <code>go</code> or <code>npm</code>: it only reads the files.',
+      p: 'Each lockfile becomes a flat list of packages with exact versions. depscan never runs <code>go</code> or <code>npm</code>: it only reads the files.',
       li: ['<code>go.mod</code>: every <code>require</code> line is a module, and <code>// indirect</code> marks a transitive one.', '<code>package-lock.json</code> (npm 7 or newer): every <code>node_modules/…</code> entry is a package, and the root entry <code>""</code> says which ones you asked for.', 'A <code>replace</code> directive is applied, so the version scanned is the version that builds.'],
-      beats: [[0, 'DepScan parses every lockfile it found.'], [0.8, '<code>go.mod</code> lists each module and version. <code>// indirect</code> marks the ones you did not add yourself.'], [5.0, '<code>package-lock.json</code> records the whole installed tree. Its root entry lists what you asked for.'], [10.0, '22 packages: 6 you chose, 16 that came along.']],
+      deep: ['<code>go.sum</code> is not read: it holds checksums, not the list of what builds. The module list comes from <code>go.mod</code>.', 'Every lockfile in a subfolder is scanned too, so a repository with <code>web/</code> and <code>api/</code> is covered in one scan.', 'npm 6 lockfiles (<code>lockfileVersion: 1</code>) have no packages map. The page skips them and asks you to run <code>npm install</code> with npm 7 or newer.'],
+      beats: [[0, 'depscan parses every lockfile it found.'], [0.8, '<code>go.mod</code> lists each module and version. <code>// indirect</code> marks the ones you did not add yourself.'], [5.0, '<code>package-lock.json</code> records the whole installed tree. Its root entry lists what you asked for.'], [10.0, '22 packages: 6 you chose, 16 that came along.']],
       code: [[0.6, '// gomod.go'], [0.9, 'for _, req := range f.Require {'], [1.0, '\tmod, ok := applyReplace(f.Replace, req.Mod.Path, req.Mod.Version)'], [1.1, '\tdeps = append(deps, model.Dependency{'], [1.2, '\t\tEcosystem: "Go", Name: mod.path,'], [1.3, '\t\tVersion: strings.TrimPrefix(mod.version, "v"), // OSV wants 1.9.0'], [2.5, '\t\tDirect:  !req.Indirect,'], [null, '\t})'], [null, '}'], [5.0, '// npm.go'], [5.2, 'root := lock.Packages[""]'], [5.4, 'for name := range root.Dependencies { direct[name] = true }'], [6.5, 'isTopLevel := path == "node_modules/"+name'], [6.7, 'Direct: isTopLevel && direct[name],']]
     },
     {
       title: 'Direct and transitive', dur: 11, scene: sc3, terms: ['transitive', 'dependency'], file: 'internal/model/types.go',
       p: 'Six packages are ones you chose. The other sixteen came along because your choices depend on them, and you ship all twenty-two.',
-      li: ['DepScan reads direct or transitive straight from the lockfile. The graph shows where the transitive ones come from.', 'Go builds one version of each module, so a package needed by three others is still one entry.', 'With <code>check_transitive: true</code>, every one of them is held to your policy.'],
+      li: ['depscan reads direct or transitive straight from the lockfile. The graph shows where the transitive ones come from.', 'Go builds one version of each module, so a package needed by three others is still one entry.', 'With <code>check_transitive: true</code>, every one of them is held to your policy.'],
+      deep: ['In npm the same package can be installed at several versions in different places. Each installed version is its own entry and is checked on its own.', 'To fix a transitive npm package, upgrade the direct package that pulls it in, or pin it with <code>overrides</code> in package.json. The result page writes that line for you.', 'In Go, <code>go get module@version</code> raises a transitive module directly, and go.mod records the new version.'],
       beats: [[0, 'Every package traces back to something you depend on.'], [2.2, 'Your 6 direct dependencies pull in 16 more. You never picked these, but you ship them.'], [6.8, 'Shared packages appear once: Go builds a single version of each module.'], [8.6, '16 of 22 are transitive. Flaws often arrive this way, so <code>check_transitive: true</code> covers them.']],
       code: [[0, 'type Dependency struct {'], [0.4, '\tEcosystem string // "Go" or "npm"'], [0.6, '\tName      string'], [0.8, '\tVersion   string // exact, from the lockfile'], [2.2, '\tDirect    bool   // false: transitive'], [6.0, '\tLicense   string // filled in by the next step'], [null, '}'], [null, ''], [8.6, '// policy.yaml'], [8.7, 'check_transitive: true']]
     },
@@ -1738,27 +2016,31 @@
       title: 'Look up licenses', dur: 11, scene: sc4, terms: ['license', 'spdx', 'copyleft'], file: 'internal/license/client.go, evaluator.go',
       p: 'Each package\'s license comes from deps.dev, Google\'s open source package index. Your policy then decides which licenses you can ship.',
       li: ['Up to 8 lookups run at once. A failed lookup leaves that license unknown; it never fails the whole scan.', 'Licenses are SPDX identifiers, so <code>GPL-3.0-or-later</code> means exactly one thing.', 'A package deps.dev does not know, like a private one, gets an unknown license. That warns, or blocks with <code>block_unknown_license: true</code>.'],
+      deep: ['An SPDX expression like <code>MIT OR GPL-3.0-only</code> passes if any choice is allowed; with <code>AND</code>, every part must be allowed.', 'deps.dev reports the license the package declares. When it has none, the Licenses tab walks you through finding the real one (step 9).', 'Set <code>skip_license_check: true</code> for offline runs: no lookups are made and no license rules apply.'],
       beats: [[0, 'Next, every package\'s license is looked up on deps.dev.'], [1.2, 'Up to 8 lookups run at once. A <code>/</code> in a module path is sent as <code>%2F</code>.'], [4.0, 'Permissive licenses like MIT, BSD-3-Clause and Apache-2.0 pass.'], [7.2, '<code>ffmpeg-static</code> is GPL-3.0-or-later, which your policy denies.'], [8.4, '<code>@shop/ui-kit</code> is private, so deps.dev has no record. An unknown license warns.']],
       code: [[1.3, 'GET https://api.deps.dev/v3/systems/GO/packages/'], [1.3, '    golang.org%2Fx%2Fcrypto/versions/v0.14.0'], [2.4, '200 OK  {"licenses": ["BSD-3-Clause"], …}'], [null, ''], [7.0, '// evaluator.go'], [7.2, 'Check("GPL-3.0-or-later", deny, true)'], [7.4, '// → false, "license denied by policy: GPL-3.0-or-later"'], [8.4, 'license.Unknown("") // true: not on deps.dev'], [8.6, '// block_unknown_license: false → a warning']]
     },
     {
       title: 'Ask OSV.dev', dur: 16, scene: sc5, terms: ['osv', 'advisory', 'vulnerability'], file: 'internal/osv/client.go, worker.go, internal/httpx',
-      p: 'OSV.dev gathers advisories from GitHub, the Go team and other databases. DepScan asks about every package in one batch, then fetches the details of each match.',
+      p: 'OSV.dev gathers advisories from GitHub, the Go team and other databases. depscan asks about every package in one batch, then fetches the details of each match.',
       li: ['One <code>querybatch</code> request covers up to 100 packages and returns only advisory IDs.', '8 workers fetch each advisory\'s severity and fixed version in parallel.', 'Connection errors, 429 and 5xx responses are retried after 500 ms and 1 s. If a request still fails, the scan fails instead of passing on missing data.'],
+      deep: ['OSV.dev is asked about exact versions, so depscan never guesses from version ranges itself.', 'Each record lists the versions that fix it. Those fixed versions are what the upgrade advice is built from.', 'A record without a severity is shown as unrated. <code>block_unknown_severity</code> decides whether unrated records block.'],
       beats: [[0, 'All 22 packages go to OSV.dev in one batch request.'], [2.4, 'OSV.dev gathers advisories from GitHub, the Go team, PyPI, RustSec and more.'], [3.8, 'The answer lists matching IDs per package: 6 packages have 15 records between them.'], [5.6, 'Details come from <code>GET /v1/vulns/{id}</code>, fetched by 8 workers at once.'], [r2(RETRY.att[0][1] - 0.4), 'A <code>503</code> is retried after 500 ms. Other 4xx errors are not retried.'], [r2(JOBS_DONE + 0.3), 'If a request still fails after 3 tries, the scan stops rather than report a false pass.']],
       code: [[0.3, 'POST https://api.osv.dev/v1/querybatch'], [0.4, '{"queries": ['], [0.6, '  {"package": {"name": "golang.org/x/crypto", "ecosystem": "Go"},'], [0.7, '   "version": "0.14.0"},'], [2.0, '  … 21 more'], [null, ']}'], [4.6, '200 OK  {"results": [{"vulns": [{"id": "GHSA-v778-237x-gjrc"}, …]}, …]}'], [null, ''], [5.8, 'GET https://api.osv.dev/v1/vulns/GHSA-v778-237x-gjrc'], [5.9, '200 OK  {"database_specific": {"severity": "CRITICAL"}, …}'], [r2(RETRY.att[0][0]), 'GET https://api.osv.dev/v1/vulns/GO-2025-3553'], [r2((RETRY.att[0][0] + RETRY.att[0][1]) / 2), '503 Service Unavailable  // retry in 500 ms'], [r2(RETRY.att[1][1]), '200 OK']]
     },
     {
       title: 'Merge duplicates', dur: 12, scene: sc6, terms: ['duplicates', 'advisory', 'severity'], file: 'internal/osv/dedupe.go',
-      p: 'The same flaw often comes back under two or three IDs. DepScan merges records that share an alias, so every number counts real problems.',
+      p: 'The same flaw often comes back under two or three IDs. depscan merges records that share an alias, so every number counts real problems.',
       li: ['Records are merged only within the same package version.', 'The kept record is the one with a severity, then the GHSA one. Without this, the GO- copy of a HIGH flaw would show up as unrated.', 'Every other ID becomes an alias, so an exception written against any of them still matches.'],
-      beats: [[0, 'The same flaw is often published under several IDs.'], [1.0, 'GitHub (GHSA), the Go team (GO-) and the CVE list each number it, and each record lists the others as aliases.'], [3.8, 'DepScan joins records that share an alias and keeps one.'], [6.8, 'It keeps the record that has a severity, preferring GHSA. The GO- record has none.'], [9.4, '15 records become 9 real advisories, each counted once.']],
+      deep: ['Merging happens per package version, so the same CVE in two different packages stays two findings.', 'Exceptions match on any alias, so an exception written for the CVE also covers its GHSA and GO- records.'],
+      beats: [[0, 'The same flaw is often published under several IDs.'], [1.0, 'GitHub (GHSA), the Go team (GO-) and the CVE list each number it, and each record lists the others as aliases.'], [3.8, 'depscan joins records that share an alias and keeps one.'], [6.8, 'It keeps the record that has a severity, preferring GHSA. The GO- record has none.'], [9.4, '15 records become 9 real advisories, each counted once.']],
       code: [[1.0, 'for _, id := range append([]string{f.VulnID}, f.Aliases...) {'], [1.1, '\tkey := pkg + "|" + strings.ToUpper(id)'], [1.2, '\tif j, ok := owner[key]; ok { parent[find(i)] = find(j) } // union'], [null, '}'], [3.8, 'best := members[0]'], [3.9, 'for _, m := range members[1:] {'], [4.0, '\tif better(findings[m], findings[best]) { best = m }'], [null, '}'], [4.2, 'out = append(out, merge(findings[best], members, findings))'], [null, ''], [6.8, 'func better(a, b model.Finding) bool {'], [7.0, '\tif ka, kb := knownSeverity(a), knownSeverity(b); ka != kb {'], [7.2, '\t\treturn ka // a record with a severity wins'], [null, '\t}'], [8.4, '\tif ga, gb := strings.HasPrefix(a.VulnID, "GHSA-"), strings.HasPrefix(b.VulnID, "GHSA-"); ga != gb {'], [8.6, '\t\treturn ga // then GHSA'], [null, '\t}'], [null, '\treturn a.VulnID < b.VulnID'], [null, '}']]
     },
     {
       title: 'Apply your policy', dur: 15, scene: sc7, terms: ['policy', 'exception', 'severity'], file: 'internal/policy/evaluate.go',
       p: 'Your <code>policy.yaml</code> turns findings into a verdict: blocks, warns or allowed. The same file applies on a laptop and in CI.',
       li: ['CRITICAL and HIGH block. Transitive packages count, because <code>check_transitive</code> is on.', 'An exception needs a reason and can expire, so accepted risk comes back for review.', 'Any violation makes <code>depscan</code> exit with status 1 and the API answer 422.'],
+      deep: ['<code>fail_fast</code> stops at the first violation and <code>max_violations</code> after a set number. Both are faster but show you less.', 'The policy file is hashed and its digest is shown on every result, so you can tell which rules judged it.', 'An exception applies through its whole expiry day. The fix plan lists exceptions that expire within 30 days.'],
       beats: [[0, 'Now your policy decides what each finding means for the build.'], [0.8, 'CRITICAL and HIGH block. Transitive packages count too, because <code>check_transitive</code> is on.'], [6.8, 'MODERATE findings warn: visible, but they do not fail the build.'], [8.8, 'An exception needs a reason and can expire. Until 2026-12-31, this gin advisory is allowed.'], [9.8, 'Licenses go through the same gate: GPL-3.0-or-later is denied, an unknown license warns.'], [12.2, '7 violations. <code>depscan</code> exits with status 1, so CI fails the build.']],
       code: [[0.8, 'for _, f := range findings {'], [3.8, '\tif !p.CheckTransitive && !f.Dep.Direct {'], [null, '\t\tcontinue'], [null, '\t}'], [9.0, '\tif excepted, reason := p.IsException(f); excepted {'], [9.1, '\t\tcontinue // reason required, expiry checked'], [null, '\t}'], [0.9, '\tif p.IsBlocked(f.Severity) {'], [1.0, '\t\tviolations = append(violations, v)'], [6.9, '\t} else if p.IsWarned(f.Severity) {'], [7.0, '\t\twarnings = append(warnings, v)'], [null, '\t}'], [null, '}'], [9.9, 'license.Check(dep.License, deny, true) // GPL-3.0-or-later: denied'], [12.2, '$ depscan -path ./shop-api'], [12.4, 'exit status 1']]
     },
@@ -1766,13 +2048,31 @@
       title: 'Read the verdict', dur: 13, scene: sc8, terms: ['fixed', 'semver'], file: 'POST /scans response',
       p: 'The dashboard shows what blocks the build, and for each package the smallest upgrade that fixes it.',
       li: ['Tower height is risk: critical counts 10, high 6, moderate 3. Clean packages form the base.', 'The recommended version is the highest fixed version among a package\'s active advisories, so one upgrade clears them all.', 'Copy the command, run it, and scan again.'],
-      beats: [[0, 'The result: blocked, with the reason for every package.'], [1.2, 'Tower height is risk. <code>x/crypto</code> stands tallest: one critical, one high, one moderate.'], [4.0, 'For each package, DepScan works out the smallest upgrade that clears every active advisory.'], [6.6, 'Copy the command, run it, scan again.'], [9.4, 'Five changes clear this build. Upgrading axios also lifts follow-redirects past its fix.']],
+      deep: ['The status code carries the answer for scripts: 200 passes, 422 means violations. The body is the same full result either way.', 'Export from the result page: a pull request comment in Markdown, the JSON record, or a CSV of every package.', 'For an npm package you did not add yourself, the fix is an <code>overrides</code> entry; for a Go module, <code>go get</code>.'],
+      beats: [[0, 'The result: blocked, with the reason for every package.'], [1.2, 'Tower height is risk. <code>x/crypto</code> stands tallest: one critical, one high, one moderate.'], [4.0, 'For each package, depscan works out the smallest upgrade that clears every active advisory.'], [6.6, 'Copy the command, run it, scan again.'], [9.4, 'Five changes clear this build. Upgrading axios also lifts follow-redirects past its fix.']],
       code: [[0.2, 'HTTP/1.1 422 Unprocessable Entity'], [0.3, '{'], [0.4, '  "path": "C:\\\\Users\\\\you\\\\code\\\\shop-api",'], [0.5, '  "result": {'], [0.8, '    "Deps":       [ 22 packages ],'], [0.9, '    "Findings":   [ 9 advisories ],'], [1.0, '    "Violations": [ 7 ],'], [1.1, '    "Warnings":   [ 3 ]'], [null, '  }'], [null, '}'], [null, ''], [4.2, '// fixed in 0.17.0, 0.31.0 and 0.35.0: the highest clears all three'], [7.8, '$ go get golang.org/x/crypto@v0.35.0']]
+    },
+    {
+      title: 'Review a license', dur: 14, scene: sc9r, terms: ['review', 'license', 'spdx'], file: 'web/results.js, web/store.js',
+      p: 'A license depscan cannot confirm is not a dead end. The review sheet leads you to the real license, checks what you type against your policy, and records your decision.',
+      li: ['Four checks: the registry page, the source repository, deps.dev for newer versions, and whether the package is your own code.', 'Type the SPDX ID you found and the sheet tells you at once whether your policy allows it.', 'Approve, reject or send to legal, with a note. Decisions are kept in this browser and export as CSV or Markdown.'],
+      deep: ['A review records a decision; it does not change <code>policy.yaml</code> or the scan result. To make it count in CI, change the policy or replace the package.', 'Reviews are kept per package and version, so an upgraded package asks for a fresh review.', 'The CSV has package, version, ecosystem, scope, declared license, flag, decision, the license you found, note, reviewer and date: an audit trail.'],
+      beats: [[0, 'Two licenses need a person: one is unknown, one is denied.'], [1.2, '<code>@shop/ui-kit</code> has no license on deps.dev. The sheet says why it is flagged.'], [1.7, 'Four checks lead to the real license.'], [3.6, 'You type <code>MIT</code>, and the sheet checks it against your policy at once.'], [4.7, 'Approve, note where you found it, save. It is kept in this browser.'], [8.6, '<code>ffmpeg-static</code> is GPL-3.0-or-later. <code>npm explain</code> shows what pulls it in.'], [10.2, 'Rejected, with a note on the replacement.'], [12.2, 'Both reviewed. Export the decisions for your pull request.']],
+      code: [[1.2, '// util.js: the same rules as license.Check in Go'], [3.6, 'licCheck("MIT", policy.denied_licenses)'], [3.8, '// → { ok: true, denied: [] }'], [4.7, 'store.putReview({'], [4.8, '\tkey: "npm|@shop/ui-kit@2.3.0", license: "MIT", decision: "approved",'], [4.9, '\tnote: "LICENSE file in the repository root", at: Date.now()'], [null, '})'], [9.2, 'licCheck("GPL-3.0-or-later", policy.denied_licenses)'], [9.4, '// → { ok: false, denied: ["GPL-3.0-or-later"] }'], [12.2, '// review-log.csv: package,version,…,decision,reviewed_license,note,reviewer,reviewed_at']]
+    },
+    {
+      title: 'Keep history, compare', dur: 13, scene: sc9h, terms: ['history', 'fixed'], file: 'web/store.js, web/results.js',
+      p: 'Every scan is saved in your browser. Scan again after the upgrades and depscan shows exactly what changed, and the history is still there after a restart.',
+      li: ['A new result is compared with the last scan of the same project: what was fixed, what is new, what is still open.', 'History keeps up to 300 scans in IndexedDB, with a trend line for each project.', 'Export it as JSON to back it up or move it to another computer, and import it there.'],
+      deep: ['Nothing in history is sent anywhere. Clearing this site\'s data in the browser deletes it, so export first if you need it.', 'The page asks the browser to keep its storage persistent, so it is not cleared to free space.', 'Scans the server ran before you opened the page (<code>GET /scans</code>) are added to history too.'],
+      beats: [[0, 'After the five changes, the project is scanned again.'], [1.0, 'Blocked becomes passes with warnings: no violations left.'], [2.0, 'Changes since the last scan: every fix, and the package removed after its review.'], [4.6, 'History keeps every scan, with the trend of advisories per scan.'], [7.0, 'It lives in IndexedDB, in this browser.'], [8.4, 'Close the browser, restart the server: it is still there.'], [11.0, 'Export it as JSON to move it to another computer.']],
+      code: [[0.2, 'POST /scans/upload → 200 OK'], [2.0, '// results.js: compare with the previous scan of the same project'], [2.1, 'prev = scans.find((e) => e.source.key === entry.source.key && e.at < entry.at)'], [7.0, '// store.js'], [7.1, 'indexedDB.open("depscan", 1) // stores: scans, reviews, handles'], [7.3, 'tx.objectStore("scans").put(entry) // the newest 300 are kept'], [8.4, 'navigator.storage.persist()'], [11.0, 'download("depscan-history.json", { format: "depscan-history", version: 1, … })']]
     },
     {
       title: 'Seal the report', dur: 15, scene: sc9, terms: ['sbom', 'sha256', 'purl'], file: 'internal/report/cyclonedx.go, hash.go',
       p: '<code>depscan -report</code> writes a CycloneDX SBOM and its SHA-256 fingerprint, so anyone can check later that the report was not changed.',
       li: ['The bytes are deterministic: sorted lists, a UTC timestamp, no absolute paths. The same scan always writes the same file.', 'The fingerprint goes in <code>report.cdx.json.sha256</code>, in the format <code>sha256sum -c</code> reads.', 'Change one word and the fingerprint changes beyond recognition: here ' + DIFFN + ' of 64 characters.'],
+      deep: ['CycloneDX is an OWASP standard SBOM format, so tools such as Dependency-Track can import the report.', 'The report records the policy digest, so the file says which rules judged it.', 'Checking needs no depscan at all: <code>sha256sum -c report.cdx.json.sha256</code> works on any machine.'],
       beats: [[0, 'The result is written as a CycloneDX 1.5 SBOM: <code>report.cdx.json</code>.'], [2.0, 'The bytes are deterministic: sorted lists, a UTC timestamp, no local paths. Same scan, same file.'], [5.0, 'SHA-256 turns the whole file into a 64-character fingerprint. These are its real working registers.'], [7.8, 'The fingerprint is saved next to the report, in the format <code>sha256sum</code> reads.'], [9.0, 'Now someone edits one word: <code>fail</code> becomes <code>pass</code>.'], [11.2, 'The new fingerprint shares almost nothing with the old one, so the check fails.']],
       code: [[0.2, '$ depscan -path ./shop-api -report report.cdx.json'], [4.6, 'wrote report.cdx.json'], [7.8, 'sha256:' + DIGEST.slice(0, 32)], [7.8, '       ' + DIGEST.slice(32)], [8.0, 'wrote report.cdx.json.sha256'], [null, ''], [12.2, '$ sha256sum -c report.cdx.json.sha256'], [12.5, 'report.cdx.json: FAILED'], [12.7, 'sha256sum: WARNING: 1 computed checksum did NOT match']]
     },
@@ -1780,14 +2080,16 @@
       title: 'Anchor the hash', dur: 12, scene: sc10, planned: 0, terms: ['anchoring', 'sha256'], file: 'internal/anchor (planned backend)',
       p: 'Planned: write the fingerprint into a public ledger, so not even someone who controls the server can rewrite the record.',
       li: ['The SHA-256 goes into the memo of a Solana transaction, and the ledger records when it arrived.', '<code>depscan verify</code> re-hashes the report and compares it with the memo.', 'A match proves the report is unchanged since that moment. It does not prove the project is still safe: new advisories appear every day, so scan again for a current answer.'],
-      beats: [[0, 'Planned: publish the fingerprint where nobody can quietly change it.'], [1.6, 'The SHA-256 goes into a Solana transaction memo. The ledger timestamps it.'], [4.4, 'DepScan keeps a receipt: which network, which transaction, when.'], [5.9, 'Later, <code>depscan verify</code> re-hashes the report and compares it with the memo.'], [9.4, 'A match proves the report is unchanged, not that the project is still safe. Scan again for today\'s answer.']],
+      deep: ['Planned. Only the 64-character fingerprint is published, never the report or your package list.', 'Anyone can check the memo on a public block explorer, without trusting the depscan server.'],
+      beats: [[0, 'Planned: publish the fingerprint where nobody can quietly change it.'], [1.6, 'The SHA-256 goes into a Solana transaction memo. The ledger timestamps it.'], [4.4, 'depscan keeps a receipt: which network, which transaction, when.'], [5.9, 'Later, <code>depscan verify</code> re-hashes the report and compares it with the memo.'], [9.4, 'A match proves the report is unchanged, not that the project is still safe. Scan again for today\'s answer.']],
       code: [[0.2, '$ depscan -path ./shop-api -report report.cdx.json -anchor solana'], [4.6, '{'], [4.7, '  "digest": "sha256:' + DIGEST.slice(0, 16) + '…",'], [4.8, '  "backend": "solana", "network": "devnet",'], [4.9, '  "tx_id": "' + TXID.slice(0, 20) + '…",'], [5.0, '  "anchored_at": "2026-10-10T04:00:21Z"'], [null, '}'], [5.9, '$ depscan verify report.cdx.json'], [8.4, 'OK: matches the anchor from 2026-10-10T04:00:21Z']]
     },
     {
       title: 'Check pull requests', dur: 14, scene: sc11, planned: 9.0, terms: ['webhook', 'status'], file: 'internal/github/webhook.go, fetch.go',
       p: 'Start the server with a webhook secret and the same scan runs on every pull request, at its latest commit.',
-      li: ['GitHub signs each delivery, and DepScan checks <code>X-Hub-Signature-256</code> before trusting the body.', 'It answers 202 right away, drops repeated deliveries, and scans in a background queue.', 'Only the lockfiles at the head commit are downloaded. Planned: post the result back as a commit status and a comment.'],
-      beats: [[0, 'The same scan runs on every pull request.'], [1.2, 'GitHub sends a webhook when a pull request opens or gets new commits.'], [2.6, 'DepScan checks the HMAC signature with your secret before reading the event.'], [3.6, 'It answers 202 at once and scans in the background. Repeated deliveries are ignored.'], [5.3, 'Only the lockfiles at the head commit are downloaded: 2 of 214 files.'], [9.0, 'Planned: the result comes back as a commit status and a comment, and a failing check blocks the merge.']],
+      li: ['GitHub signs each delivery, and depscan checks <code>X-Hub-Signature-256</code> before trusting the body.', 'It answers 202 right away, drops repeated deliveries, and scans in a background queue.', 'Only the lockfiles at the head commit are downloaded. Planned: post the result back as a commit status and a comment.'],
+      deep: ['The webhook secret stays on the server. A delivery whose signature does not match is rejected before its body is used.', 'Scans run in a background queue, so GitHub gets its answer in milliseconds even when OSV.dev is slow.'],
+      beats: [[0, 'The same scan runs on every pull request.'], [1.2, 'GitHub sends a webhook when a pull request opens or gets new commits.'], [2.6, 'depscan checks the HMAC signature with your secret before reading the event.'], [3.6, 'It answers 202 at once and scans in the background. Repeated deliveries are ignored.'], [5.3, 'Only the lockfiles at the head commit are downloaded: 2 of 214 files.'], [9.0, 'Planned: the result comes back as a commit status and a comment, and a failing check blocks the merge.']],
       code: [[1.2, 'POST /webhooks/github HTTP/1.1'], [1.3, 'X-GitHub-Event: pull_request'], [1.4, 'X-Hub-Signature-256: sha256=' + HOOK_SIG.slice(0, 32) + '…'], [2.6, '// VerifySignature: HMAC-SHA256(secret, body), constant-time compare'], [3.6, 'HTTP/1.1 202 Accepted  {"status": "queued"}'], [null, ''], [5.3, 'GET /repos/you/shop-api/git/trees/9c1e2f7?recursive=1'], [5.8, 'GET /repos/you/shop-api/git/blobs/…  (go.mod)'], [6.2, 'GET /repos/you/shop-api/git/blobs/…  (web/package-lock.json)'], [9.0, '// planned: POST /repos/you/shop-api/statuses/9c1e2f7  {"state": "failure"}']]
     }
   ];
@@ -1830,7 +2132,7 @@
 
   /* ======================= engine ======================= */
   let t = 0, playing = false, speed = 1, raf = 0, last = 0, cur = -1, beat = -1, codeNow = -2;
-  let entered = false, resumeOnEnter = false, pausedByView = false, dragging = false, everPlayed = false;
+  let entered = false, resumeOnEnter = false, pausedByView = false, dragging = false, everPlayed = false, deepOpen = false;
   let cssW = 0, cssH = 0, dpr = 1;
   const SPEEDS = [0.5, 1, 1.5, 2];
 
@@ -1855,11 +2157,11 @@
   function render() {
     if (!cssW) resize();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     // blueprint dots, in world space
     const W = SW(), H = SH(), s = Math.min(cssW / W, cssH / H), ox = (cssW - W * s) / 2, oy = (cssH - H * s) / 2;
     ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * ox, dpr * oy);
-    ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(170,185,255,0.07)';
+    ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(223,231,224,0.06)';
     for (let x = 12; x < W; x += 24) for (let y = 12; y < H; y += 24) ctx.fillRect(x - 0.75, y - 0.75, 1.5, 1.5);
     const i = chapterAt(t), c = CH[i], lt = Math.min(t - c.start, c.dur);
     const tr = rmq.matches ? 1 : c01(lt / TRANS);
@@ -1881,10 +2183,13 @@
   function renderNarr(c) {
     narr.innerHTML = '<p class="kick">Step ' + (c.i + 1) + ' of ' + CH.length + (c.planned != null ? ' <span class="plan">Planned</span>' : '') + '</p>' +
       '<h2>' + c.title + '</h2><p>' + c.p + '</p><ul>' + c.li.map((x) => '<li>' + x + '</li>').join('') + '</ul>' +
+      (c.deep ? '<details' + (deepOpen ? ' open' : '') + '><summary><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg>Go deeper</summary><ul>' + c.deep.map((x) => '<li>' + x + '</li>').join('') + '</ul></details>' : '') +
       '<div class="terms"><span>Terms in this step</span>' + c.terms.map((id) => {
         const tp = window.Learn && window.Learn.topics[id];
         return tp ? '<button class="term" type="button" data-learn="' + id + '"><i>?</i>' + escH(tp.title.replace(/ \(planned\)$/, '')) + '</button>' : '';
       }).join('') + '</div>';
+    const det = narr.querySelector('details');
+    if (det) det.addEventListener('toggle', () => { deepOpen = det.open; });
     narr.classList.remove('swap'); void narr.offsetWidth; narr.classList.add('swap');
     hoodFile.textContent = c.file;
     let at = 0;
@@ -2047,7 +2352,21 @@
   });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(kick);
 
+  // Draw one frame of the walkthrough into another canvas (the preview on the
+  // landing view). Same pure function of time, so it matches the player.
+  function thumb(target, tt) {
+    const r = target.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const keep = { ctx, cssW, cssH, dpr, WIDE, t };
+    const d = Math.min(2, devicePixelRatio || 1);
+    target.width = Math.round(r.width * d); target.height = Math.round(r.height * d);
+    ctx = target.getContext('2d'); cssW = r.width; cssH = r.height; dpr = d; WIDE = true; t = clamp(tt, 0, TOTAL - 0.001);
+    try { ctx.fillStyle = '#06080b'; ctx.fillRect(0, 0, target.width, target.height); render(); }
+    finally { ctx = keep.ctx; cssW = keep.cssW; cssH = keep.cssH; dpr = keep.dpr; WIDE = keep.WIDE; t = keep.t; }
+  }
+
   window.DepscanDemo = {
+    thumb,
     enter() {
       resize();
       if (!entered) { entered = true; if (!rmq.matches) play(); else { t = 0; kick(); } }
