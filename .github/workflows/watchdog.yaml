@@ -1,0 +1,78 @@
+name: Watchdog
+
+# Every 30 minutes, looks for errors in the live server's logs and opens (or updates) an issue.
+# Azure doesn't deliver its own alert emails on our student (free) subscription; GitHub's arrive.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write # open or comment on the alert issue
+  id-token: write # azure/login over OIDC
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: rg-depscan
+  WORKSPACE: log-depscan
+  CONTAINER_APP: depscan-server
+  NOTIFY: sayanx64 # mentioned (and so emailed) when errors show up
+  TITLE: Live server errors
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # 5xx responses, failed background webhook scans and panics. The 35-minute window
+      # overlaps the previous run a little, so nothing slips through (a line may repeat).
+      - name: Look for errors in the last 35 minutes
+        id: logs
+        run: |
+          ws=$(az monitor log-analytics workspace show -g "$RESOURCE_GROUP" -n "$WORKSPACE" --query customerId -o tsv)
+          query="ContainerAppConsoleLogs_CL
+          | where TimeGenerated > ago(35m)
+          | where ContainerAppName_s == '$CONTAINER_APP'
+          | where Log_s matches regex @' (GET|POST|PUT|PATCH|DELETE|HEAD) \S+ 5\d\d '
+              or (Log_s has 'webhook:' and Log_s has 'failed after')
+              or Log_s has 'panic'
+          | order by TimeGenerated asc
+          | project Log_s"
+          jq -n --arg q "$query" '{query: $q}' > query.json
+          az rest -m post -u "https://api.loganalytics.io/v1/workspaces/$ws/query" \
+            --resource https://api.loganalytics.io --body @query.json -o json |
+            jq -r '.tables[0].rows[][0]' > errors.txt
+          count=$(wc -l < errors.txt)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "found $count error line(s)"
+
+      - name: Open or update the alert issue
+        if: steps.logs.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "@$NOTIFY the live server logged errors in the last 35 minutes:"
+            echo
+            echo '```'
+            cat errors.txt
+            echo '```'
+            echo
+            echo "Found by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > body.md
+          issue=$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" \
+            --jq '[.[] | select(.title == env.TITLE and .pull_request == null)][0].number // empty')
+          if [ -n "$issue" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/issues/$issue/comments" -F body=@body.md --jq '.html_url'
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues" -f title="$TITLE" -F body=@body.md --jq '.html_url'
+          fi

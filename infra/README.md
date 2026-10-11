@@ -10,7 +10,7 @@ The live app runs on Azure Container Apps, set up with Terraform in `infra/terra
 | Images | `ghcr.io/depscan-go/depscan`, public |
 | Database | Neon Postgres (AWS Singapore). Its URL is wired in, but the server doesn't read it yet |
 | Secrets | Key Vault `kv-depscan-50385a`: `database-url`, `webhook-secret`, `github-token` |
-| Logs and alerts | Log Analytics (0.1 GB/day cap), an alert on server errors, and a $10/month budget. Emails go to the subscription owner |
+| Logs and alerts | Log Analytics (0.1 GB/day cap) and a $10/month budget. Every 30 minutes the Watchdog workflow checks the logs for errors and opens a GitHub issue if it finds any |
 | Terraform state | Storage account `depscantf16049` |
 
 ## How a change reaches production
@@ -65,6 +65,7 @@ The live app watches `sayanx64/depscan-sandbox`. To add a repo, open its Setting
 - Container Apps run in **Express** mode. It can't use Key Vault references (Terraform copies secrets in instead), and it has no Container Apps Jobs.
 - Express can't pull private images, so the GHCR package has to stay public.
 - Express remembers a failed image reference and never retries it. That's why CD deploys by digest, not by tag.
-- Express doesn't report request metrics, so the error alert reads the server's logs.
+- Express doesn't report request metrics, so errors are found in the server's logs.
+- Azure alert emails never arrive on this (free) subscription: alerts fire, but nobody gets notified. That's why the Watchdog workflow reports errors as a GitHub issue instead.
 - Only these regions are allowed: `malaysiawest`, `eastasia`, `koreacentral`, `uaenorth` and `indiasouthcentral` (which has no Container Apps).
 - GitHub's OIDC subject includes the repo's IDs. If the repo is ever recreated, update `github_oidc_subject_prefix` in `variables.tf`.

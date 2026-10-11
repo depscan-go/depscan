@@ -40,3 +40,11 @@ resource "azurerm_role_assignment" "gha_app_contributor" {
   principal_id         = azurerm_user_assigned_identity.gha.principal_id
   principal_type       = "ServicePrincipal"
 }
+
+# The watchdog workflow reads the server's logs to look for errors.
+resource "azurerm_role_assignment" "gha_logs_reader" {
+  scope                = azurerm_log_analytics_workspace.main.id
+  role_definition_name = "Log Analytics Reader"
+  principal_id         = azurerm_user_assigned_identity.gha.principal_id
+  principal_type       = "ServicePrincipal"
+}
