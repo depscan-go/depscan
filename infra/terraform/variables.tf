@@ -49,3 +49,15 @@ variable "enable_webhooks" {
   type        = bool
   default     = true
 }
+
+variable "monthly_budget" {
+  description = "Monthly spend (in the billing currency, USD for Azure for Students) that triggers budget emails."
+  type        = number
+  default     = 10
+}
+
+variable "budget_start" {
+  description = "First day of the first budget month (Azure needs the 1st of a month)."
+  type        = string
+  default     = "2026-10-01T00:00:00Z"
+}
