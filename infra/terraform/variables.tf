@@ -61,3 +61,9 @@ variable "budget_start" {
   type        = string
   default     = "2026-10-01T00:00:00Z"
 }
+
+variable "alert_emails" {
+  description = "Addresses for budget and error alerts. Set this in terraform.tfvars (gitignored) so no address ends up in the repo."
+  type        = list(string)
+  default     = []
+}
