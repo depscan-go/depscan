@@ -4,9 +4,10 @@ name: CD
 on:
   push:
     branches: [main]
-    # Terraform is applied by hand, and docs don't change the image
+    # Terraform is applied by hand, and tests and docs don't change the image
     paths-ignore:
       - "infra/**"
+      - "e2e/**"
       - "**.md"
   workflow_dispatch:
 
