@@ -6,6 +6,12 @@ locals {
 
   # Key Vault names are global; a stable suffix avoids pulling in the random provider.
   suffix = substr(sha1(var.subscription_id), 0, 6)
+
+  # Env var => Key Vault secret name, for every secret the app gets.
+  app_secrets = merge(
+    var.wire_database_url ? { DATABASE_URL = "database-url" } : {},
+    var.enable_webhooks ? { DEPSCAN_WEBHOOK_SECRET = "webhook-secret", GITHUB_TOKEN = "github-token" } : {},
+  )
 }
 
 resource "azurerm_resource_group" "main" {
@@ -54,12 +60,12 @@ resource "azurerm_container_app" "server" {
   }
 
   # Azure for Students only gets Express environments, which reject Key Vault references,
-  # so Terraform copies the value in. Key Vault stays the source of truth: rotate there, then apply.
+  # so Terraform copies the values in. Key Vault stays the source of truth: rotate there, then apply.
   dynamic "secret" {
-    for_each = var.wire_database_url ? [1] : []
+    for_each = local.app_secrets
     content {
-      name  = "database-url"
-      value = data.azurerm_key_vault_secret.database_url[0].value
+      name  = secret.value
+      value = data.azurerm_key_vault_secret.app[secret.key].value
     }
   }
 
@@ -81,10 +87,10 @@ resource "azurerm_container_app" "server" {
       memory = "0.5Gi"
 
       dynamic "env" {
-        for_each = var.wire_database_url ? [1] : []
+        for_each = local.app_secrets
         content {
-          name        = "DATABASE_URL"
-          secret_name = "database-url"
+          name        = env.key
+          secret_name = env.value
         }
       }
     }
