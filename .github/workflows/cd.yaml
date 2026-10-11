@@ -51,7 +51,8 @@ jobs:
             type=sha,format=long
             type=raw,value=latest
 
-      - uses: docker/build-push-action@v7
+      - id: build
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/Dockerfile
@@ -77,12 +78,16 @@ jobs:
           echo "running image: $prev"
           echo "PREV_IMAGE=$prev" >> "$GITHUB_ENV"
 
+      # Deploy by digest: it pins exactly the image built above, and Express caches
+      # failed pulls per image reference, so a tag that once failed stays broken.
       - name: Deploy
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           az containerapp update \
             --resource-group "$RESOURCE_GROUP" \
             --name "$CONTAINER_APP" \
-            --image "$IMAGE:sha-$GITHUB_SHA" \
+            --image "$IMAGE@$DIGEST" \
             --output none
 
       # Express reuses one revision name and never sets latestReadyRevisionName, so check
@@ -90,8 +95,10 @@ jobs:
       # Gap: if the new container fails to start, Express may keep serving the old one, and
       # /healthz would still pass. Closing it needs /healthz to report the build SHA.
       - name: Smoke test
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          want="$IMAGE:sha-$GITHUB_SHA"
+          want="$IMAGE@$DIGEST"
           got=$(az containerapp revision list -g "$RESOURCE_GROUP" -n "$CONTAINER_APP" \
             --query "[?properties.active].properties.template.containers[0].image | [0]" -o tsv)
           echo "active revision image: $got"
