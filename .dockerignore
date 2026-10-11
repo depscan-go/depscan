@@ -1,0 +1,7 @@
+# Keep the server image to what it needs: no tests, infra, docs or git history.
+.git
+bin/
+e2e/
+infra/
+goal/
+.env

@@ -17,3 +17,7 @@ Thumbs.db
 .env
 *.pem
 *-keypair.json
+
+# End-to-end test kit output
+e2e/bin/
+e2e/results/
