@@ -23,11 +23,26 @@ const (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "verify":
+			os.Exit(runVerify(os.Args[2:], os.Stdout, os.Stderr))
+		case "keygen":
+			os.Exit(runKeygen(os.Args[2:], os.Stdout, os.Stderr))
+		}
+	}
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+		say(out, "usage: depscan [flags]                  scan a project\n")
+		say(out, "       depscan verify report.cdx.json  check a report against its checksum and anchor\n")
+		say(out, "       depscan keygen                  create a Solana keypair for -anchor solana\n\n")
+		flag.PrintDefaults()
+	}
 	path := flag.String("path", ".", "path to the repository to scan")
 	policyFile := flag.String("policy", "policy.yaml", "path to policy.yaml")
 	reportFile := flag.String("report", "", "write a CycloneDX SBOM report to this file (plus <file>.sha256)")
 	commit := flag.String("commit", "", "VCS revision being scanned, recorded in the report (e.g. $GITHUB_SHA)")
-	anchorName := flag.String("anchor", "", "anchor the report digest with this backend (noop); needs -report")
+	anchorName := flag.String("anchor", "", "anchor the report digest with this backend: solana or noop; needs -report")
 	flag.Parse()
 
 	var anchorer anchor.Anchorer
@@ -84,6 +99,13 @@ func main() {
 				os.Exit(exitToolError)
 			}
 			fmt.Printf("Anchored:     %s via %s\n", receipt.Digest, receipt.Backend)
+			if receipt.TxID != "" {
+				fmt.Printf("Transaction:  %s\n", receipt.TxID)
+			}
+			if receipt.URL != "" {
+				fmt.Printf("Explorer:     %s\n", receipt.URL)
+			}
+			fmt.Printf("Receipt:      %s\n", *reportFile+".anchor.json")
 		}
 	}
 
