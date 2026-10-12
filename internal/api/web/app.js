@@ -110,8 +110,9 @@
     if (name === 'history') renderHistory();
     if (name === 'policy') renderPolicy();
     if (name === 'scan' && id && (!app.entry || app.entry.id !== id)) {
-      const e = await DS.store.getScan(id);
+      const e = (await DS.store.getScan(id)) || (await scanFromServer(id));
       if (e) showEntry(e, { scroll: true });
+      else toast('That scan is not on this server any more. Scans from pull requests are kept until the server restarts.', 'bad');
     }
     if (name === 'scan' && !id && !prev && !first) scrollTo(0, scrollMemo.scan || 0);
   }
@@ -519,11 +520,24 @@
       const have = new Set((await DS.store.listScans()).map((e) => e.id));
       for (const rec of data) {
         if (!rec || !rec.id || have.has(rec.id)) continue;
-        const entry = { id: rec.id, at: Date.parse(rec.scanned_at) || Date.now(), label: rec.path, source: guessSource(rec.path), ms: 0, record: rec };
-        entry.summary = DS.model.summarize(DS.model.build(rec, app.policy));
-        await DS.store.putScan(entry);
+        await DS.store.putScan(entryFromRecord(rec));
       }
     } catch (e) { /* offline: the saved history is still shown */ }
+  }
+  function entryFromRecord(rec) {
+    const entry = { id: rec.id, at: Date.parse(rec.scanned_at) || Date.now(), label: rec.path, source: guessSource(rec.path), ms: 0, record: rec };
+    entry.summary = DS.model.summarize(DS.model.build(rec, app.policy));
+    return entry;
+  }
+  // A link from a pull request opens #scan/<id>; fetch it if this browser has not seen it.
+  async function scanFromServer(id) {
+    try {
+      const { res, data } = await getJSON('/scans/' + encodeURIComponent(id));
+      if (!res.ok || !data || data.id !== id) return null;
+      const entry = entryFromRecord(data);
+      await DS.store.putScan(entry);
+      return entry;
+    } catch (e) { return null; }
   }
   function spark(entries) {
     const pts = entries.slice(0, 24).reverse();
