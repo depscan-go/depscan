@@ -34,6 +34,7 @@ type verifyResult struct {
 	URL        string `json:"url,omitempty"`
 	Signer     string `json:"signer,omitempty"`
 	AnchoredAt string `json:"anchored_at,omitempty"`
+	Recovered  bool   `json:"recovered,omitempty"` // found on the ledger by -signer, with no receipt file
 	Verified   bool   `json:"verified"`
 	Detail     string `json:"detail,omitempty"`
 }
@@ -50,6 +51,8 @@ func runVerify(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	receiptPath := fs.String("receipt", "", "anchor receipt to check (default <report>.anchor.json)")
 	offline := fs.Bool("offline", false, "check the checksum and receipt files only, without asking the ledger")
+	signer := fs.String("signer", "", "with no receipt file, search this Solana address's transactions for the report's anchor")
+	save := fs.Bool("save", false, "with -signer, write the receipt that was found to the receipt file")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	timeout := fs.Duration("timeout", 60*time.Second, "how long to wait for the ledger")
 	fs.Usage = func() {
@@ -72,7 +75,7 @@ func runVerify(args []string, stdout, stderr io.Writer) int {
 		*receiptPath = path + ".anchor.json"
 	}
 
-	res, code := verifyReport(path, *receiptPath, *offline, *timeout)
+	res, code := verifyReport(path, verifyOpts{receipt: *receiptPath, offline: *offline, timeout: *timeout, signer: *signer, save: *save})
 	if *asJSON {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -86,7 +89,16 @@ func runVerify(args []string, stdout, stderr io.Writer) int {
 	return code
 }
 
-func verifyReport(path, receiptPath string, offline bool, timeout time.Duration) (verifyResult, int) {
+type verifyOpts struct {
+	receipt string
+	offline bool
+	timeout time.Duration
+	signer  string // Solana address to search when there is no receipt
+	save    bool
+}
+
+func verifyReport(path string, o verifyOpts) (verifyResult, int) {
+	receiptPath, offline, timeout := o.receipt, o.offline, o.timeout
 	res := verifyResult{Report: path, Checksum: checkMissing, Anchor: checkMissing}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -111,6 +123,28 @@ func verifyReport(path, receiptPath string, offline bool, timeout time.Duration)
 	// 2. The anchor receipt, then the ledger.
 	r, err := anchor.ReadReceipt(receiptPath)
 	switch {
+	case errors.Is(err, os.ErrNotExist) && o.signer != "" && !offline:
+		// No receipt: the ledger itself can say whether this report was anchored.
+		f, ferr := recoverReceipt(res.Digest, o.signer, timeout)
+		switch {
+		case ferr == nil:
+			res.Anchor, res.Recovered = checkOK, true
+			res.Backend, res.Network, res.TxID, res.URL, res.Signer = f.Backend, f.Network, f.TxID, f.URL, f.Signer
+			res.AnchoredAt = f.AnchoredAt.UTC().Format(time.RFC3339)
+			if o.save {
+				if werr := anchor.WriteReceipt(receiptPath, f); werr != nil {
+					res.Detail, toolErr = "found the anchor but could not save the receipt: "+werr.Error(), true
+				} else {
+					res.Detail = "receipt saved to " + receiptPath
+				}
+			}
+		case errors.Is(ferr, anchor.ErrNotAnchored):
+			res.Anchor, failed = checkMismatch, true
+			res.Detail = ferr.Error()
+		default:
+			res.Anchor, toolErr = checkSkipped, true
+			res.Detail = "could not ask the ledger: " + ferr.Error()
+		}
 	case errors.Is(err, os.ErrNotExist):
 		// not anchored; the checksum alone decides
 	case err != nil:
@@ -175,6 +209,17 @@ func verifyReport(path, receiptPath string, offline bool, timeout time.Duration)
 	return res, exitClean
 }
 
+func recoverReceipt(digest, signer string, timeout time.Duration) (anchor.Receipt, error) {
+	s, err := anchor.SolanaFromEnv()
+	if err != nil {
+		return anchor.Receipt{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	r, _, err := s.Find(ctx, digest, signer)
+	return r, err
+}
+
 // readChecksum reads a sha256sum line ("<hex>  <file>") and returns the digest.
 func readChecksum(path string) (string, error) {
 	data, err := os.ReadFile(path)
@@ -226,6 +271,9 @@ func printVerify(w io.Writer, r verifyResult, code int) {
 	case exitClean:
 		if r.Anchor == checkOK {
 			say(w, "VERIFIED: this report is exactly the one anchored at %s.\n", r.AnchoredAt)
+			if r.Recovered {
+				say(w, "The receipt file was missing; the anchor was found on the ledger by its signer.\n")
+			}
 		} else {
 			say(w, "VERIFIED: this report matches its checksum file.\n")
 		}

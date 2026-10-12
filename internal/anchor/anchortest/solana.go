@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -67,6 +68,8 @@ func (f *SolanaNode) serve(w http.ResponseWriter, r *http.Request) {
 	switch req.Method {
 	case "getLatestBlockhash":
 		reply(map[string]any{"context": map[string]any{"slot": f.slot}, "value": map[string]any{"blockhash": b58(f.blockhash[:]), "lastValidBlockHeight": 5000}})
+	case "getBalance":
+		reply(map[string]any{"context": map[string]any{"slot": f.slot}, "value": 2_000_000_000})
 	case "getBlockHeight":
 		reply(4000)
 	case "sendTransaction":
@@ -112,6 +115,22 @@ func (f *SolanaNode) serve(w http.ResponseWriter, r *http.Request) {
 			out[i] = map[string]any{"slot": tx.Slot, "confirmations": 0, "err": errVal, "confirmationStatus": status}
 		}
 		reply(map[string]any{"context": map[string]any{"slot": f.slot}, "value": out})
+	case "getSignaturesForAddress":
+		var addr string
+		_ = json.Unmarshal(req.Params[0], &addr)
+		var out []any
+		for sig, tx := range f.txs {
+			if tx.Payer != addr {
+				continue
+			}
+			var errVal any
+			if tx.Failed {
+				errVal = map[string]any{"InstructionError": []any{0, "InvalidInstructionData"}}
+			}
+			memo := fmt.Sprintf("[%d] %s", len(tx.Memo), tx.Memo)
+			out = append(out, map[string]any{"signature": sig, "slot": tx.Slot, "err": errVal, "memo": memo, "blockTime": 1760000000 + int64(tx.Slot), "confirmationStatus": "confirmed"})
+		}
+		reply(out)
 	case "getBlockTime":
 		reply(1760000000 + int64(f.slot))
 	case "getTransaction":
@@ -208,6 +227,9 @@ func (r *reader) compact() int {
 		shift += 7
 	}
 }
+
+// Base58 encodes bytes the way Solana writes keys and signatures.
+func Base58(b []byte) string { return b58(b) }
 
 func b58(b []byte) string {
 	const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"

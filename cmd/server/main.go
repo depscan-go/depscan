@@ -56,6 +56,7 @@ func main() {
 	mux.HandleFunc("GET /policy", handler.PolicyView)
 	mux.HandleFunc("GET /scans", handler.ListScans)
 	mux.HandleFunc("GET /scans/{id}", handler.GetScan)
+	mux.HandleFunc("GET /scans/{id}/report", handler.GetReport)
 
 	// GitHub webhooks are on only when a secret is set. The secret comes from
 	// the environment, not a flag, so it never shows up in the process list.
@@ -65,6 +66,12 @@ func main() {
 		token := os.Getenv("GITHUB_TOKEN")
 		fetcher := github.NewFetcher(token)
 		publisher := newPublisher(token)
+		anchorer, err := newServerAnchorer()
+		if err != nil {
+			log.Printf("anchoring: off: %v", err)
+		} else if anchorer != nil {
+			go logBalance(anchorer, log.Printf)
+		}
 		queue = github.NewQueue(50, fetcher, engine, func(o github.Outcome) {
 			label := fmt.Sprintf("github.com/%s#%d@%.7s", o.Job.Repo, o.Job.PR, o.Job.HeadSHA)
 			scanID := ""
@@ -74,6 +81,23 @@ func main() {
 				scanID = handler.Record(label, o.Result).ID
 				log.Printf("webhook: %s scanned in %s: %d lockfiles, %d deps, %d violations",
 					label, o.Duration.Round(time.Millisecond), o.Files, len(o.Result.Deps), len(o.Result.Violations))
+				if anchorer != nil {
+					// Anchor before reporting, so the comment can carry the transaction.
+					// A devnet anchor takes a few seconds, well inside the time the app
+					// stays up after the webhook request.
+					ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+					data, info, err := anchorScan(ctx, anchorer, p, o)
+					cancel()
+					if data != nil {
+						handler.AttachReport(scanID, data, info)
+						o.Anchor = anchorNote(info)
+					}
+					if err != nil {
+						log.Printf("webhook: %s: anchoring %s: %v", label, info.Digest, err)
+					} else {
+						log.Printf("webhook: %s: anchored %s in %s", label, info.Digest, info.Anchor.TxID)
+					}
+				}
 			}
 			if publisher != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -98,7 +122,7 @@ func main() {
 			os.Exit(1)
 		}
 		mux.Handle("POST /webhooks/github", wh)
-		log.Printf("webhooks: POST /webhooks/github (GitHub token: %t, results on pull requests: %s)", token != "", feedbackMode(publisher))
+		log.Printf("webhooks: POST /webhooks/github (GitHub token: %t, results on pull requests: %s, anchoring: %t)", token != "", feedbackMode(publisher), anchorer != nil)
 	} else {
 		log.Printf("webhooks: off (set DEPSCAN_WEBHOOK_SECRET to enable)")
 	}

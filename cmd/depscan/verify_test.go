@@ -49,6 +49,7 @@ func isolate(t *testing.T) {
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 	t.Setenv("DEPSCAN_SOLANA_KEYPAIR", "")
+	t.Setenv("DEPSCAN_SOLANA_KEY", "")
 	t.Setenv("DEPSCAN_SOLANA_RPC", "")
 }
 
@@ -205,5 +206,39 @@ func TestKeygen(t *testing.T) {
 	out.Reset()
 	if code := runKeygen([]string{"-out", path}, &out, &out); code != exitToolError || !strings.Contains(out.String(), "never overwrites") {
 		t.Errorf("second keygen must refuse: code %d\n%s", code, out.String())
+	}
+}
+
+func TestVerify_RecoversALostReceiptFromTheLedger(t *testing.T) {
+	isolate(t)
+	_, srv := anchortest.NewSolanaNode(t)
+	key := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{4}, 32))
+	sol, err := anchor.NewSolana(anchor.SolanaConfig{RPCURL: srv.URL, Network: "devnet", Key: key, Poll: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"bomFormat":"CycloneDX","serial":"x"}`
+	path := writeTestReport(t, body)
+	if _, err := sol.Anchor(context.Background(), report.Digest([]byte(body))); err != nil {
+		t.Fatal(err)
+	}
+	// The server anchored it, but the receipt never reached disk.
+	t.Setenv("DEPSCAN_SOLANA_RPC", srv.URL)
+	code, out, res := verify(t, "-signer", sol.Address(), "-save", path)
+	if code != exitClean || !res.Recovered || res.Anchor != checkOK || res.TxID == "" {
+		t.Fatalf("code %d, %+v\n%s", code, res, out)
+	}
+	saved, err := anchor.ReadReceipt(path + ".anchor.json")
+	if err != nil || saved.TxID != res.TxID {
+		t.Fatalf("-save should write the receipt: %v", err)
+	}
+	// From now on the saved receipt is used, without -signer.
+	if code, _, res := verify(t, path); code != exitClean || res.Recovered || res.Anchor != checkOK {
+		t.Errorf("with the saved receipt: code %d, %+v", code, res)
+	}
+
+	other := writeTestReport(t, "a report nobody anchored")
+	if code, _, res := verify(t, "-signer", sol.Address(), other); code != exitViolation || res.Anchor != checkMismatch {
+		t.Errorf("unanchored report: code %d, %+v", code, res)
 	}
 }
