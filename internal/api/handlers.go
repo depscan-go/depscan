@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/depscan-go/depscan/internal/anchor"
 	"github.com/depscan-go/depscan/internal/model"
 	"github.com/depscan-go/depscan/internal/scan"
 )
@@ -21,6 +22,15 @@ type ScanRecord struct {
 	Path      string            `json:"path"`
 	ScannedAt time.Time         `json:"scanned_at"`
 	Result    *model.ScanResult `json:"result"`
+	Report    *ReportInfo       `json:"report,omitempty"`
+}
+
+// ReportInfo describes the CycloneDX report the server kept for a scan and,
+// if it was anchored, where. The report itself is at GET /scans/{id}/report.
+type ReportInfo struct {
+	Digest      string          `json:"digest"`
+	Anchor      *anchor.Receipt `json:"anchor,omitempty"`
+	AnchorError string          `json:"anchor_error,omitempty"`
 }
 
 type Handler struct {
@@ -28,6 +38,7 @@ type Handler struct {
 	scanRoot string
 	mu       sync.RWMutex
 	scans    map[string]*ScanRecord
+	reports  map[string][]byte // report bytes by scan ID
 }
 
 func New(engine *scan.Engine, scanRoot string) (*Handler, error) {
@@ -43,6 +54,7 @@ func New(engine *scan.Engine, scanRoot string) (*Handler, error) {
 		engine:   engine,
 		scanRoot: root,
 		scans:    make(map[string]*ScanRecord),
+		reports:  make(map[string][]byte),
 	}, nil
 }
 
@@ -144,6 +156,42 @@ func (h *Handler) Record(label string, result *model.ScanResult) *ScanRecord {
 	h.scans[record.ID] = record
 	h.mu.Unlock()
 	return record
+}
+
+// AttachReport keeps a scan's report bytes and anchor details with its
+// record, until the server restarts.
+func (h *Handler) AttachReport(id string, data []byte, info ReportInfo) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	rec, ok := h.scans[id]
+	if !ok {
+		return false
+	}
+	// Records are never changed in place: a request may be encoding the old one.
+	updated := *rec
+	updated.Report = &info
+	h.scans[id] = &updated
+	h.reports[id] = data
+	return true
+}
+
+// GetReport serves the CycloneDX report of a scan, byte for byte as it was
+// hashed and anchored, so `depscan verify` can check it.
+func (h *Handler) GetReport(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	h.mu.RLock()
+	data, ok := h.reports[id]
+	h.mu.RUnlock()
+	if !ok {
+		writeError(w, http.StatusNotFound, "no report for this scan (reports are kept for pull request scans until the server restarts)")
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.cyclonedx+json")
+	w.Header().Set("Content-Disposition", `attachment; filename="report.cdx.json"`)
+	w.Header().Set("Cache-Control", "no-store")
+	if _, err := w.Write(data); err != nil {
+		log.Printf("writing report %s: %v", id, err)
+	}
 }
 
 func (h *Handler) GetScan(w http.ResponseWriter, r *http.Request) {

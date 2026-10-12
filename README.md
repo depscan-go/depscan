@@ -111,6 +111,7 @@ costs 0.000005 SOL.
 | --- | --- |
 | `DEPSCAN_SOLANA_RPC` | `devnet`; also `testnet`, `mainnet-beta`, or any RPC URL |
 | `DEPSCAN_SOLANA_KEYPAIR` | `~/.config/solana/id.json` (the Solana CLI's keypair works too) |
+| `DEPSCAN_SOLANA_KEY` | The secret key itself, for servers: base58 (as Phantom exports it) or the JSON array `solana-keygen` writes. Use this or `DEPSCAN_SOLANA_KEYPAIR`, not both |
 
 ### Verifying
 
@@ -121,6 +122,11 @@ depscan verify report.cdx.json
 re-hashes the report and checks it against `report.cdx.json.sha256` and, if
 it was anchored, against the transaction on the ledger. Verifying needs no
 wallet. Add `-json` for CI, or `-offline` to check only the local files.
+
+Lost the receipt? The ledger still has the anchor:
+`depscan verify -signer <address> -save report.cdx.json` searches that
+address's transactions for the report's fingerprint and writes the receipt
+back.
 
 | Exit status | Meaning |
 | --- | --- |
@@ -157,6 +163,19 @@ edits that comment instead of adding another.
 
 Only the lockfiles at the pull request's head commit are downloaded.
 
+### Anchoring pull request scans
+
+Set `DEPSCAN_ANCHOR=solana` and `DEPSCAN_SOLANA_KEY` (devnet by default) and
+the server also builds each pull request scan's CycloneDX report, anchors its
+SHA-256, and puts the transaction in the pull request comment. The report is
+kept at `GET /scans/{id}/report` until the server restarts. The server logs
+the wallet's address and balance at startup.
+
+There is no database, and none is needed for the proof: GitHub keeps the
+comment, the ledger keeps the anchor, and `depscan verify -signer <address>`
+finds the anchor of any copy of the report. Anchoring never changes a scan's
+result; if it fails, the comment says why.
+
 ## HTTP API
 
 | Method and path | |
@@ -166,6 +185,7 @@ Only the lockfiles at the pull request's head commit are downloaded.
 | `POST /scans` | Scan a folder inside the scan root: `{"path": "..."}` |
 | `POST /scans/upload` | Scan lockfiles sent by the dashboard (gzip JSON, 1 MB limit) |
 | `GET /scans`, `GET /scans/{id}` | Results kept in memory until the server restarts |
+| `GET /scans/{id}/report` | The CycloneDX report of an anchored pull request scan |
 | `GET /policy` | The loaded policy, read-only |
 | `POST /webhooks/github` | GitHub webhook deliveries, when enabled |
 

@@ -198,3 +198,76 @@ func TestSolanaFromEnv(t *testing.T) {
 		t.Error("a custom network needs DEPSCAN_SOLANA_RPC")
 	}
 }
+
+func TestParseSolanaKey(t *testing.T) {
+	key := testKey(5)
+	full := anchortest.Base58(key)                    // what Phantom exports
+	seed := anchortest.Base58(key[:ed25519.SeedSize]) // 32-byte form
+	arr := strings.TrimSpace(string(anchor.SolanaKeypairJSON(key)))
+	for name, in := range map[string]string{"base58 keypair": full, "base58 seed": seed, "JSON array": arr, "padded": "  " + full + "\n"} {
+		got, err := anchor.ParseSolanaKey(in)
+		if err != nil || !got.Equal(key) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	bad := append([]byte(nil), key...)
+	bad[63] ^= 1
+	for name, in := range map[string]string{"mismatched halves": anchortest.Base58(bad), "too short": anchortest.Base58(key[:20]), "not base58": "0OIl" + full, "bad JSON": "[1,2,"} {
+		_, err := anchor.ParseSolanaKey(in)
+		if err == nil {
+			t.Errorf("%s: should fail", name)
+			continue
+		}
+		if strings.Contains(err.Error(), full[:10]) {
+			t.Errorf("%s: the error must not echo the key: %v", name, err)
+		}
+	}
+}
+
+func TestSolanaFromEnv_KeyFromSecret(t *testing.T) {
+	_, srv := anchortest.NewSolanaNode(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DEPSCAN_SOLANA_RPC", srv.URL)
+	t.Setenv("DEPSCAN_SOLANA_KEYPAIR", "")
+	t.Setenv("DEPSCAN_SOLANA_KEY", anchortest.Base58(testKey(6)))
+	s, err := anchor.SolanaFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Address() != anchor.SolanaAddress(testKey(6)) {
+		t.Errorf("address = %s", s.Address())
+	}
+	t.Setenv("DEPSCAN_SOLANA_KEYPAIR", "/some/file.json")
+	if _, err := anchor.SolanaFromEnv(); err == nil {
+		t.Error("setting both the key and a keypair file is ambiguous and must fail")
+	}
+}
+
+func TestSolana_FindRebuildsALostReceipt(t *testing.T) {
+	_, srv := anchortest.NewSolanaNode(t)
+	s := newTestSolana(t, srv.URL, testKey(7))
+	ctx := context.Background()
+	want, err := s.Anchor(ctx, report.Digest([]byte("report A")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Anchor(ctx, report.Digest([]byte("report B"))); err != nil {
+		t.Fatal(err)
+	}
+
+	// The receipt file is gone; the report and the server's address are enough.
+	reader := newTestSolana(t, srv.URL, nil)
+	got, proof, err := reader.Find(ctx, report.Digest([]byte("report A")), s.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TxID != want.TxID || got.Signer != s.Address() || proof.Memo != anchor.MemoFor(want.Digest) || got.AnchoredAt.IsZero() {
+		t.Errorf("found %+v, want tx %s", got, want.TxID)
+	}
+	if _, _, err := reader.Find(ctx, report.Digest([]byte("never anchored")), s.Address()); !errors.Is(err, anchor.ErrNotAnchored) {
+		t.Errorf("unknown digest: %v", err)
+	}
+	if _, _, err := reader.Find(ctx, want.Digest, anchor.SolanaAddress(testKey(8))); !errors.Is(err, anchor.ErrNotAnchored) {
+		t.Errorf("another signer's history: %v", err)
+	}
+}
