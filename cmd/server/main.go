@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -61,17 +62,34 @@ func main() {
 	workers, cancelWorkers := context.WithCancel(context.Background())
 	var queue *github.Queue
 	if secret := os.Getenv("DEPSCAN_WEBHOOK_SECRET"); secret != "" {
-		fetcher := github.NewFetcher(os.Getenv("GITHUB_TOKEN"))
+		token := os.Getenv("GITHUB_TOKEN")
+		fetcher := github.NewFetcher(token)
+		publisher := newPublisher(token)
 		queue = github.NewQueue(50, fetcher, engine, func(o github.Outcome) {
 			label := fmt.Sprintf("github.com/%s#%d@%.7s", o.Job.Repo, o.Job.PR, o.Job.HeadSHA)
+			scanID := ""
 			if o.Err != nil {
 				log.Printf("webhook: %s failed after %s: %v", label, o.Duration.Round(time.Millisecond), o.Err)
-				return
+			} else {
+				scanID = handler.Record(label, o.Result).ID
+				log.Printf("webhook: %s scanned in %s: %d lockfiles, %d deps, %d violations",
+					label, o.Duration.Round(time.Millisecond), o.Files, len(o.Result.Deps), len(o.Result.Violations))
 			}
-			handler.Record(label, o.Result)
-			log.Printf("webhook: %s scanned in %s: %d lockfiles, %d deps, %d violations",
-				label, o.Duration.Round(time.Millisecond), o.Files, len(o.Result.Deps), len(o.Result.Violations))
+			if publisher != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				if err := publisher.Finished(ctx, o, scanID); err != nil {
+					log.Printf("webhook: %s: reporting to GitHub: %v", label, err)
+				}
+			}
 		})
+		if publisher != nil {
+			queue.OnStart(func(ctx context.Context, j github.Job) {
+				if err := publisher.Started(ctx, j); err != nil {
+					log.Printf("webhook: github.com/%s#%d@%.7s: pending status: %v", j.Repo, j.PR, j.HeadSHA, err)
+				}
+			})
+		}
 		queue.Start(workers, 2)
 
 		wh, err := github.NewWebhookHandler(secret, queue.Enqueue)
@@ -80,7 +98,7 @@ func main() {
 			os.Exit(1)
 		}
 		mux.Handle("POST /webhooks/github", wh)
-		log.Printf("webhooks: POST /webhooks/github (GitHub token: %t)", os.Getenv("GITHUB_TOKEN") != "")
+		log.Printf("webhooks: POST /webhooks/github (GitHub token: %t, results on pull requests: %s)", token != "", feedbackMode(publisher))
 	} else {
 		log.Printf("webhooks: off (set DEPSCAN_WEBHOOK_SECRET to enable)")
 	}
@@ -118,4 +136,28 @@ func main() {
 		queue.Wait()
 	}
 	log.Println("done")
+}
+
+// newPublisher reports webhook scans back to the pull request: a commit
+// status always, and a comment unless DEPSCAN_PR_FEEDBACK=status. It needs
+// GITHUB_TOKEN; DEPSCAN_PR_FEEDBACK=off turns both off.
+func newPublisher(token string) *github.Publisher {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("DEPSCAN_PR_FEEDBACK")))
+	if token == "" || mode == "off" {
+		return nil
+	}
+	p := github.NewPublisher(token)
+	p.Comments = mode != "status"
+	p.DashboardURL = os.Getenv("DEPSCAN_PUBLIC_URL")
+	return p
+}
+
+func feedbackMode(p *github.Publisher) string {
+	switch {
+	case p == nil:
+		return "off"
+	case p.Comments:
+		return "status and comment"
+	}
+	return "status only"
 }

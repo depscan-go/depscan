@@ -32,9 +32,15 @@ type Queue struct {
 	src     Source
 	scanner Scanner
 	done    func(Outcome)
+	started func(context.Context, Job)
 	timeout time.Duration
 	wg      sync.WaitGroup
 }
+
+// OnStart sets a function called when a worker picks up a job, before any
+// file is fetched; the server uses it to mark the commit as pending. Call it
+// before Start.
+func (q *Queue) OnStart(fn func(context.Context, Job)) { q.started = fn }
 
 func NewQueue(size int, src Source, scanner Scanner, done func(Outcome)) *Queue {
 	return &Queue{
@@ -80,6 +86,10 @@ func (q *Queue) run(parent context.Context, j Job) (out Outcome) {
 
 	ctx, cancel := context.WithTimeout(parent, q.timeout)
 	defer cancel()
+
+	if q.started != nil {
+		q.started(ctx, j)
+	}
 
 	dir, err := os.MkdirTemp("", "depscan-pr-*")
 	if err != nil {

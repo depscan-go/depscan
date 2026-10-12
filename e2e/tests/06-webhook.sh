@@ -13,7 +13,9 @@ echo "06 · Local webhook on $URL/webhooks/github"
 if [ -z "${GITHUB_TOKEN:-}" ] && command -v gh >/dev/null; then GITHUB_TOKEN=$(gh auth token 2>/dev/null); fi
 echo "  (GitHub API: $([ -n "${GITHUB_TOKEN:-}" ] && echo "with a token" || echo "anonymous, 60 requests/hour"))"
 
-DEPSCAN_WEBHOOK_SECRET=$SECRET GITHUB_TOKEN="${GITHUB_TOKEN:-}" "$BIN/depscan-server" -addr "127.0.0.1:$PORT" \
+# DEPSCAN_PR_FEEDBACK=off: with a token the server would otherwise post a commit
+# status and a comment on the real PR #15. This test only checks the scan.
+DEPSCAN_WEBHOOK_SECRET=$SECRET DEPSCAN_PR_FEEDBACK=off GITHUB_TOKEN="${GITHUB_TOKEN:-}" "$BIN/depscan-server" -addr "127.0.0.1:$PORT" \
   -scan-root "$PG/projects" -policy "$PG/policies/default.yaml" >"$OUT/webhook-server.log" 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null; wait $SERVER 2>/dev/null' EXIT

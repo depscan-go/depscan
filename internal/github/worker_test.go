@@ -90,3 +90,30 @@ func TestQueue_EnqueueDoesNotBlockWhenFull(t *testing.T) {
 		t.Fatal("second job should be refused, not block")
 	}
 }
+
+func TestQueue_OnStartRunsBeforeFetching(t *testing.T) {
+	var order []string
+	src := &orderSource{order: &order}
+	got := make(chan github.Outcome, 1)
+	q := github.NewQueue(1, src, &fakeScanner{}, func(o github.Outcome) { got <- o })
+	q.OnStart(func(_ context.Context, j github.Job) { order = append(order, "start "+j.Repo) })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() { cancel(); q.Wait() }()
+	q.Start(ctx, 1)
+	q.Enqueue(github.Job{Repo: "acme/shop", HeadRepo: "acme/shop"})
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no outcome within 5s")
+	}
+	if len(order) != 2 || order[0] != "start acme/shop" || order[1] != "fetch" {
+		t.Errorf("order = %v, want start then fetch", order)
+	}
+}
+
+type orderSource struct{ order *[]string }
+
+func (o *orderSource) FetchLockfiles(_ context.Context, _, _ string, dir string) (int, error) {
+	*o.order = append(*o.order, "fetch")
+	return 1, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o600)
+}
