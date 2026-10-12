@@ -216,10 +216,10 @@
       body: '<p>SHA-256 turns any input into 256 bits, written as 64 hex characters. The same input always gives the same output, and nobody knows how to find two inputs with the same output. Edit the text below and watch the fingerprint:</p>',
       dep: 'Next to each report depscan writes <code>report.cdx.json.sha256</code>. Run <code>sha256sum -c report.cdx.json.sha256</code> to confirm the report was not changed.',
       rel: ['sbom', 'anchoring'] },
-    { id: 'anchoring', g: 4, icon: 'chain', c: 'var(--medium)', title: 'Anchoring a hash (planned)', ch: 11,
+    { id: 'anchoring', g: 4, icon: 'chain', c: 'var(--medium)', title: 'Anchoring a hash', ch: 11,
       sum: 'Publishing a report\'s fingerprint where nobody can quietly change it.',
       body: '<p>A hash stored next to the report does not stop someone from changing both. Anchoring writes the hash into a public ledger, such as the memo of a Solana transaction, which records it with a timestamp nobody can edit later.</p><p><b>What it proves:</b> this exact report existed, unchanged, at that time. <b>What it does not prove:</b> that the project is still safe. Advisories are published every day, so an old clean report is a fact about the past. Scan again for a current answer.</p>',
-      dep: 'Planned: <code>-anchor</code> stores a receipt with the network, transaction and time, and <code>depscan verify</code> re-hashes the report and compares it with the ledger.',
+      dep: '<code>depscan -report report.cdx.json -anchor solana</code> writes the digest into a Solana memo and saves <code>report.cdx.json.anchor.json</code> with the network, transaction, signer and time. <code>depscan verify report.cdx.json</code> re-hashes the report and checks it against the checksum file and the ledger. Start with <code>depscan keygen</code> and free devnet SOL from faucet.solana.com.',
       rel: ['sha256', 'sbom'] },
 
     { id: 'webhook', g: 5, icon: 'hook', c: 'var(--text-2)', title: 'Webhooks and signatures', ch: 12,
@@ -227,10 +227,10 @@
       body: '<p>A webhook is an HTTP request GitHub sends to a URL you choose when something happens, like a pull request being opened or getting new commits.</p><p>Anyone can send requests to that URL, so GitHub signs each one: the <code>X-Hub-Signature-256</code> header is an HMAC-SHA256 of the body, keyed with a secret only you and GitHub know.</p>',
       dep: 'depscan checks the signature with a constant-time comparison, answers 202 at once, ignores repeated deliveries, and scans in a background queue. Only the lockfiles at the head commit are downloaded.',
       rel: ['status'] },
-    { id: 'status', g: 5, icon: 'check', c: 'var(--clean)', title: 'Commit status checks (planned)', ch: 12,
+    { id: 'status', g: 5, icon: 'check', c: 'var(--clean)', title: 'Commit status checks', ch: 12,
       sum: 'The tick or cross next to a pull request.',
       body: '<p>A commit status reports a pass or fail for one commit. With branch protection, a repository can require a status to pass before a pull request can be merged.</p>',
-      dep: 'Planned: post the scan result as a status on the pull request\'s head commit, with a comment listing what to fix.',
+      dep: 'With <code>GITHUB_TOKEN</code> set, depscan marks the head commit pending while it scans, then success, failure or error, and keeps one comment on the pull request listing what blocks and the version that fixes it. A later push edits that comment instead of adding another.',
       rel: ['webhook', 'policy'] }
   ];
   const BY = Object.fromEntries(T.map((t) => [t.id, t]));

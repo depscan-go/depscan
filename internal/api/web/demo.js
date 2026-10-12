@@ -1751,7 +1751,7 @@
     }
   }
 
-  /* ======================= 12. anchor the fingerprint (planned) ======================= */
+  /* ======================= 12. anchor the fingerprint ======================= */
   function sc10(t) {
     const L = WIDE
       ? { chip: [24, 46], chain: [150, 108, 80, 132], rcpt: [24, 300, 452, 236], ver: [494, 300, 442, 236], news: [330, 14, 420, 72] }
@@ -1850,7 +1850,7 @@
     ['Queue the job', '2 workers', 4.2, 5.3],
     ['Fetch lockfiles at 9c1e2f7', '2 of 214 files', 5.3, 7.3],
     ['Scan', 'parse, licenses, OSV, policy', 7.3, 9.0],
-    ['Post status and comment', 'planned', 9.0, 10.3]
+    ['Post status and comment', 'state: failure', 9.0, 10.3]
   ];
   function sc11(t) {
     const L = WIDE
@@ -1923,8 +1923,7 @@
         if (done) badge(sx + 26, y, 9, i === 5 ? P.crit : P.ok, i === 5 ? '!' : 'ok', k(t, b, b + 0.3));
         else if (now) spinner(sx + 26, y, 7, t, P.act2); else ring(sx + 26, y, 8, P.line2, 1, 1.5);
         T(s, sx + 44, y + 0.5, { size: 13, w: done || now ? 600 : 400, c: done || now ? P.text : P.muted, max: sw - 200 });
-        if (i === 5) pill(sx + sw - 14, y, 'Planned', { al: 'right', h: 20, size: 10.5, c: P.med, f: 's', w: 600 });
-        else T(d, sx + sw - 14, y + 0.5, { size: 11.5, f: 'm', c: P.faint, al: 'right' });
+        T(d, sx + sw - 14, y + 0.5, { size: 11.5, f: 'm', c: i === 5 && done ? P.crit : P.faint, al: 'right' });
         if (i === 4 && now) {
           const pr = k(t, a, b), stages = ['parse', 'licenses', 'OSV', 'policy'];
           box(sx + 44, y + 12, sw - 60, 3, { r: 2, fill: P.line });
@@ -2077,20 +2076,20 @@
       code: [[0.2, '$ depscan -path ./shop-api -report report.cdx.json'], [4.6, 'wrote report.cdx.json'], [7.8, 'sha256:' + DIGEST.slice(0, 32)], [7.8, '       ' + DIGEST.slice(32)], [8.0, 'wrote report.cdx.json.sha256'], [null, ''], [12.2, '$ sha256sum -c report.cdx.json.sha256'], [12.5, 'report.cdx.json: FAILED'], [12.7, 'sha256sum: WARNING: 1 computed checksum did NOT match']]
     },
     {
-      title: 'Anchor the hash', dur: 12, scene: sc10, planned: 0, terms: ['anchoring', 'sha256'], file: 'internal/anchor (planned backend)',
-      p: 'Planned: write the fingerprint into a public ledger, so not even someone who controls the server can rewrite the record.',
+      title: 'Anchor the hash', dur: 12, scene: sc10, terms: ['anchoring', 'sha256'], file: 'internal/anchor/solana.go, cmd/depscan/verify.go',
+      p: '<code>-anchor solana</code> writes the fingerprint into a public ledger, so not even someone who controls the server can rewrite the record.',
       li: ['The SHA-256 goes into the memo of a Solana transaction, and the ledger records when it arrived.', '<code>depscan verify</code> re-hashes the report and compares it with the memo.', 'A match proves the report is unchanged since that moment. It does not prove the project is still safe: new advisories appear every day, so scan again for a current answer.'],
-      deep: ['Planned. Only the 64-character fingerprint is published, never the report or your package list.', 'Anyone can check the memo on a public block explorer, without trusting the depscan server.'],
-      beats: [[0, 'Planned: publish the fingerprint where nobody can quietly change it.'], [1.6, 'The SHA-256 goes into a Solana transaction memo. The ledger timestamps it.'], [4.4, 'depscan keeps a receipt: which network, which transaction, when.'], [5.9, 'Later, <code>depscan verify</code> re-hashes the report and compares it with the memo.'], [9.4, 'A match proves the report is unchanged, not that the project is still safe. Scan again for today\'s answer.']],
-      code: [[0.2, '$ depscan -path ./shop-api -report report.cdx.json -anchor solana'], [4.6, '{'], [4.7, '  "digest": "sha256:' + DIGEST.slice(0, 16) + '…",'], [4.8, '  "backend": "solana", "network": "devnet",'], [4.9, '  "tx_id": "' + TXID.slice(0, 20) + '…",'], [5.0, '  "anchored_at": "2026-10-10T04:00:21Z"'], [null, '}'], [5.9, '$ depscan verify report.cdx.json'], [8.4, 'OK: matches the anchor from 2026-10-10T04:00:21Z']]
+      deep: ['Only the fingerprint is published, as the memo <code>depscan:v1:sha256:…</code>, never the report or your package list.', 'Anyone can check the memo on a public block explorer, without trusting the depscan server. <code>depscan verify</code> needs no wallet, only the network.', 'Devnet is the default and its SOL is free: <code>depscan keygen</code> makes a wallet, the faucet funds it, and one anchor costs 0.000005 SOL.'],
+      beats: [[0, 'Publish the fingerprint where nobody can quietly change it.'], [1.6, 'The SHA-256 goes into a Solana transaction memo. The ledger timestamps it.'], [4.4, 'depscan keeps a receipt: which network, which transaction, when.'], [5.9, 'Later, <code>depscan verify</code> re-hashes the report and compares it with the memo.'], [9.4, 'A match proves the report is unchanged, not that the project is still safe. Scan again for today\'s answer.']],
+      code: [[0.2, '$ depscan -path ./shop-api -report report.cdx.json -anchor solana'], [4.6, '{'], [4.7, '  "digest": "sha256:' + DIGEST.slice(0, 16) + '…",'], [4.8, '  "backend": "solana", "network": "devnet",'], [4.9, '  "tx_id": "' + TXID.slice(0, 20) + '…",'], [5.0, '  "anchored_at": "2026-10-10T04:00:21Z"'], [null, '}'], [5.9, '$ depscan verify report.cdx.json'], [6.4, 'Checksum:  OK'], [7.6, 'Anchor:    OK (solana, devnet)'], [8.4, 'VERIFIED: this report is exactly the one anchored at 2026-10-10T04:00:21Z.']]
     },
     {
-      title: 'Check pull requests', dur: 14, scene: sc11, planned: 9.0, terms: ['webhook', 'status'], file: 'internal/github/webhook.go, fetch.go',
+      title: 'Check pull requests', dur: 14, scene: sc11, terms: ['webhook', 'status'], file: 'internal/github/webhook.go, fetch.go, publish.go',
       p: 'Start the server with a webhook secret and the same scan runs on every pull request, at its latest commit.',
-      li: ['GitHub signs each delivery, and depscan checks <code>X-Hub-Signature-256</code> before trusting the body.', 'It answers 202 right away, drops repeated deliveries, and scans in a background queue.', 'Only the lockfiles at the head commit are downloaded. Planned: post the result back as a commit status and a comment.'],
-      deep: ['The webhook secret stays on the server. A delivery whose signature does not match is rejected before its body is used.', 'Scans run in a background queue, so GitHub gets its answer in milliseconds even when OSV.dev is slow.'],
-      beats: [[0, 'The same scan runs on every pull request.'], [1.2, 'GitHub sends a webhook when a pull request opens or gets new commits.'], [2.6, 'depscan checks the HMAC signature with your secret before reading the event.'], [3.6, 'It answers 202 at once and scans in the background. Repeated deliveries are ignored.'], [5.3, 'Only the lockfiles at the head commit are downloaded: 2 of 214 files.'], [9.0, 'Planned: the result comes back as a commit status and a comment, and a failing check blocks the merge.']],
-      code: [[1.2, 'POST /webhooks/github HTTP/1.1'], [1.3, 'X-GitHub-Event: pull_request'], [1.4, 'X-Hub-Signature-256: sha256=' + HOOK_SIG.slice(0, 32) + '…'], [2.6, '// VerifySignature: HMAC-SHA256(secret, body), constant-time compare'], [3.6, 'HTTP/1.1 202 Accepted  {"status": "queued"}'], [null, ''], [5.3, 'GET /repos/you/shop-api/git/trees/9c1e2f7?recursive=1'], [5.8, 'GET /repos/you/shop-api/git/blobs/…  (go.mod)'], [6.2, 'GET /repos/you/shop-api/git/blobs/…  (web/package-lock.json)'], [9.0, '// planned: POST /repos/you/shop-api/statuses/9c1e2f7  {"state": "failure"}']]
+      li: ['GitHub signs each delivery, and depscan checks <code>X-Hub-Signature-256</code> before trusting the body.', 'It answers 202 right away, drops repeated deliveries, and scans in a background queue.', 'Only the lockfiles at the head commit are downloaded. The result comes back as a commit status and one comment that is updated on every push.'],
+      deep: ['The webhook secret stays on the server. A delivery whose signature does not match is rejected before its body is used.', 'Scans run in a background queue, so GitHub gets its answer in milliseconds even when OSV.dev is slow.', 'Results need <code>GITHUB_TOKEN</code> with write access to commit statuses and pull requests. <code>DEPSCAN_PR_FEEDBACK=status</code> keeps only the status; a scan that cannot finish is reported as an error, never as a pass.'],
+      beats: [[0, 'The same scan runs on every pull request.'], [1.2, 'GitHub sends a webhook when a pull request opens or gets new commits.'], [2.6, 'depscan checks the HMAC signature with your secret before reading the event.'], [3.6, 'It answers 202 at once and scans in the background. Repeated deliveries are ignored.'], [5.3, 'Only the lockfiles at the head commit are downloaded: 2 of 214 files.'], [9.0, 'The result comes back as a commit status and a comment. With branch protection, a failing check blocks the merge.']],
+      code: [[1.2, 'POST /webhooks/github HTTP/1.1'], [1.3, 'X-GitHub-Event: pull_request'], [1.4, 'X-Hub-Signature-256: sha256=' + HOOK_SIG.slice(0, 32) + '…'], [2.6, '// VerifySignature: HMAC-SHA256(secret, body), constant-time compare'], [3.6, 'HTTP/1.1 202 Accepted  {"status": "queued"}'], [null, ''], [5.3, 'GET /repos/you/shop-api/git/trees/9c1e2f7?recursive=1'], [5.8, 'GET /repos/you/shop-api/git/blobs/…  (go.mod)'], [6.2, 'GET /repos/you/shop-api/git/blobs/…  (web/package-lock.json)'], [9.0, 'POST /repos/you/shop-api/statuses/9c1e2f7  {"state": "failure", "context": "depscan"}'], [9.6, 'PATCH /repos/you/shop-api/issues/comments/…  (the one depscan comment)']]
     }
   ];
   let acc = 0;
