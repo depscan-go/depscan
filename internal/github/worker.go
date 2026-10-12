@@ -25,6 +25,19 @@ type Outcome struct {
 	Err       error
 	StartedAt time.Time
 	Duration  time.Duration
+	Anchor    *AnchorNote // set by the server when it anchors the scan's report
+}
+
+// AnchorNote says where a scan's report was anchored, for the pull request
+// comment. Anchoring never changes the verdict.
+type AnchorNote struct {
+	Digest    string // sha256:<hex> of the CycloneDX report
+	Network   string
+	TxID      string
+	URL       string // block explorer
+	Signer    string
+	ReportURL string // where to download the report, when the server has a public URL
+	Err       string // why anchoring failed, if it did
 }
 
 type Queue struct {

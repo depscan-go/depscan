@@ -44,6 +44,10 @@ type SolanaConfig struct {
 	Poll    time.Duration // how often to check for confirmation; default 500ms
 }
 
+// ErrUnfunded means the payer has no SOL for the fee. Retrying will not help
+// until someone funds the wallet.
+var ErrUnfunded = errors.New("no SOL to pay the transaction fee")
+
 // Cluster RPC endpoints, by the network names receipts record.
 var clusters = map[string]string{
 	"devnet":       "https://api.devnet.solana.com",
@@ -86,6 +90,8 @@ func NewSolana(cfg SolanaConfig) (*Solana, error) {
 // SolanaFromEnv configures the backend from the environment:
 //
 //	DEPSCAN_SOLANA_RPC      JSON-RPC URL, or devnet, testnet, mainnet-beta (default devnet)
+//	DEPSCAN_SOLANA_KEY      the secret key itself, base58 or a JSON array; for servers,
+//	                        where it comes from a secret store
 //	DEPSCAN_SOLANA_KEYPAIR  keypair file in Solana CLI format (default ~/.config/solana/id.json)
 //
 // A missing keypair is not an error here: verifying works without one, and
@@ -109,6 +115,17 @@ func solanaFromEnv(network string) (*Solana, error) {
 	cfg := SolanaConfig{RPCURL: rpc}
 	path := strings.TrimSpace(os.Getenv("DEPSCAN_SOLANA_KEYPAIR"))
 	explicit := path != ""
+	if secret := strings.TrimSpace(os.Getenv("DEPSCAN_SOLANA_KEY")); secret != "" {
+		if explicit {
+			return nil, errors.New("solana: set DEPSCAN_SOLANA_KEY or DEPSCAN_SOLANA_KEYPAIR, not both")
+		}
+		key, err := ParseSolanaKey(secret)
+		if err != nil {
+			return nil, fmt.Errorf("DEPSCAN_SOLANA_KEY: %w", err)
+		}
+		cfg.Key = key
+		return NewSolana(cfg)
+	}
 	if !explicit {
 		path = DefaultSolanaKeypair()
 	}
@@ -148,6 +165,45 @@ func LoadSolanaKeypair(path string) (ed25519.PrivateKey, error) {
 		return nil, fmt.Errorf("%s: the public key does not match the secret key", path)
 	}
 	return key, nil
+}
+
+// ParseSolanaKey reads a secret key given as text, in any of the forms
+// wallets export it: base58 of the 64-byte keypair (Phantom, Solflare),
+// base58 of the 32-byte seed, or the JSON array solana-keygen writes. The
+// error never contains the key.
+func ParseSolanaKey(s string) (ed25519.PrivateKey, error) {
+	s = strings.TrimSpace(s)
+	var raw []byte
+	if strings.HasPrefix(s, "[") {
+		var nums []int
+		if err := json.Unmarshal([]byte(s), &nums); err != nil {
+			return nil, errors.New("not a JSON array of numbers")
+		}
+		raw = make([]byte, len(nums))
+		for i, n := range nums {
+			if n < 0 || n > 255 {
+				return nil, errors.New("JSON array value out of range")
+			}
+			raw[i] = byte(n)
+		}
+	} else {
+		b, err := base58Decode(s)
+		if err != nil {
+			return nil, errors.New("not base58 and not a JSON array")
+		}
+		raw = b
+	}
+	switch len(raw) {
+	case ed25519.SeedSize:
+		return ed25519.NewKeyFromSeed(raw), nil
+	case ed25519.PrivateKeySize:
+		key := ed25519.NewKeyFromSeed(raw[:ed25519.SeedSize])
+		if !bytes.Equal(key[ed25519.SeedSize:], raw[ed25519.SeedSize:]) {
+			return nil, errors.New("the public half does not match the secret half")
+		}
+		return key, nil
+	}
+	return nil, fmt.Errorf("a key is 32 or 64 bytes, this is %d", len(raw))
 }
 
 // SolanaKeypairJSON encodes a key in the Solana CLI file format.
@@ -236,6 +292,18 @@ func (s *Solana) Anchor(ctx context.Context, digest string) (Receipt, error) {
 		Signer:     s.Address(),
 		AnchoredAt: at.Truncate(time.Second),
 	}, nil
+}
+
+// Balance returns the payer's balance in lamports (1 SOL = 1e9 lamports).
+func (s *Solana) Balance(ctx context.Context) (uint64, error) {
+	if s.key == nil {
+		return 0, errors.New("solana: no keypair")
+	}
+	var out struct {
+		Value uint64 `json:"value"`
+	}
+	err := s.call(ctx, "getBalance", []any{s.Address(), map[string]string{"commitment": "confirmed"}}, &out)
+	return out.Value, err
 }
 
 // confirm waits until the transaction is confirmed, fails, or can no longer
@@ -365,6 +433,60 @@ func (s *Solana) Lookup(ctx context.Context, r Receipt) (Proof, error) {
 	return p, nil
 }
 
+// Find looks for an anchor of digest among the signer's recent
+// transactions, so a lost receipt can be rebuilt from the ledger alone. It
+// checks up to the newest 5,000 transactions and confirms the match with
+// Lookup. Nothing found wraps ErrNotAnchored.
+func (s *Solana) Find(ctx context.Context, digest, signer string) (Receipt, Proof, error) {
+	d, err := normalize(digest)
+	if err != nil {
+		return Receipt{}, Proof{}, err
+	}
+	if _, err := decode32(signer); err != nil {
+		return Receipt{}, Proof{}, fmt.Errorf("solana: %q is not a Solana address", signer)
+	}
+	want := MemoFor(d)
+	before := ""
+	for page := 0; page < 5; page++ {
+		opts := map[string]any{"limit": 1000, "commitment": "confirmed"}
+		if before != "" {
+			opts["before"] = before
+		}
+		var list []struct {
+			Signature string          `json:"signature"`
+			Err       json.RawMessage `json:"err"`
+			Memo      *string         `json:"memo"`
+			BlockTime *int64          `json:"blockTime"`
+		}
+		if err := s.call(ctx, "getSignaturesForAddress", []any{signer, opts}, &list); err != nil {
+			return Receipt{}, Proof{}, err
+		}
+		for _, e := range list {
+			// The node formats memos as "[length] text"; the match is confirmed below.
+			if e.Memo == nil || !strings.Contains(*e.Memo, want) || (len(e.Err) > 0 && string(e.Err) != "null") {
+				continue
+			}
+			r := Receipt{Digest: d, Backend: s.Name(), Network: s.network, TxID: e.Signature, URL: s.explorer(e.Signature), Signer: signer}
+			if e.BlockTime != nil {
+				r.AnchoredAt = time.Unix(*e.BlockTime, 0).UTC()
+			}
+			p, err := s.Lookup(ctx, r)
+			if err != nil {
+				return Receipt{}, Proof{}, err
+			}
+			if !p.BlockTime.IsZero() {
+				r.AnchoredAt = p.BlockTime
+			}
+			return r, p, nil
+		}
+		if len(list) < 1000 {
+			break
+		}
+		before = list[len(list)-1].Signature
+	}
+	return Receipt{}, Proof{}, fmt.Errorf("%w: no transaction from %s on %s carries %s", ErrNotAnchored, signer, s.network, d)
+}
+
 func (s *Solana) explorer(sig string) string {
 	switch s.network {
 	case "mainnet-beta":
@@ -452,7 +574,7 @@ func (s *Solana) explainSend(err error) error {
 			if s.network == "devnet" || s.network == "testnet" {
 				how = "get free " + s.network + " SOL at https://faucet.solana.com"
 			}
-			return fmt.Errorf("solana: the wallet %s has no SOL on %s to pay the fee; %s", s.Address(), s.network, how)
+			return fmt.Errorf("solana: wallet %s on %s: %w; %s", s.Address(), s.network, ErrUnfunded, how)
 		}
 	}
 	return fmt.Errorf("solana: sending the transaction: %w", err)

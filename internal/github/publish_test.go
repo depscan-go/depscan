@@ -437,3 +437,37 @@ func TestWebhookToPullRequestFeedback(t *testing.T) {
 		}
 	}
 }
+
+func TestCommentBody_Anchor(t *testing.T) {
+	o := github.Outcome{Job: prJob(sha), Result: &model.ScanResult{}, Anchor: &github.AnchorNote{
+		Digest: "sha256:" + strings.Repeat("ab", 32), Network: "devnet", TxID: strings.Repeat("5", 88),
+		URL: "https://explorer.solana.com/tx/x?cluster=devnet", Signer: "SignerAddr", ReportURL: "https://d.example/scans/1/report",
+	}}
+	body := github.CommentBody(o, "")
+	for _, want := range []string{"anchored on Solana devnet", "`sha256:abababababab…`", "(https://explorer.solana.com/tx/x?cluster=devnet)", "[Download the report](https://d.example/scans/1/report)", "depscan verify -signer SignerAddr report.cdx.json"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q:\n%s", want, body)
+		}
+	}
+	o.Anchor = &github.AnchorNote{Digest: "sha256:" + strings.Repeat("cd", 32), Err: "wallet has no SOL"}
+	if body := github.CommentBody(o, ""); !strings.Contains(body, "could not be anchored: wallet has no SOL") {
+		t.Errorf("failed anchor:\n%s", body)
+	}
+}
+
+func TestPublisher_AddsReportLinkWithPublicURL(t *testing.T) {
+	api := &fakeGitHubAPI{}
+	p := github.NewPublisherWithBaseURL(api.server(t).URL, "tok")
+	p.DashboardURL = "https://depscan.example.com"
+	note := &github.AnchorNote{Digest: "sha256:" + strings.Repeat("ef", 32), Network: "devnet", TxID: "abc", URL: "https://explorer.solana.com/tx/abc?cluster=devnet", Signer: "S"}
+	if err := p.Finished(context.Background(), github.Outcome{Job: prJob(sha), Result: &model.ScanResult{}, Anchor: note}, "id9"); err != nil {
+		t.Fatal(err)
+	}
+	c := api.ourComments(7)
+	if len(c) != 1 || !strings.Contains(c[0].Body, "https://depscan.example.com/scans/id9/report") {
+		t.Errorf("comment = %+v", c)
+	}
+	if note.ReportURL != "" {
+		t.Error("Finished must not change the caller's note")
+	}
+}

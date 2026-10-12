@@ -86,7 +86,13 @@ func (p *Publisher) Finished(ctx context.Context, o Outcome, scanID string) erro
 	state, desc := Summary(o)
 	link := ""
 	if p.DashboardURL != "" && scanID != "" {
-		link = strings.TrimRight(p.DashboardURL, "/") + "/#scan/" + url.PathEscape(scanID)
+		base := strings.TrimRight(p.DashboardURL, "/")
+		link = base + "/#scan/" + url.PathEscape(scanID)
+		if o.Anchor != nil {
+			note := *o.Anchor
+			note.ReportURL = base + "/scans/" + url.PathEscape(scanID) + "/report"
+			o.Anchor = &note
+		}
 	}
 	err := p.setStatus(ctx, o.Job, state, desc, link)
 	if !p.Comments || o.Job.PR <= 0 {
@@ -176,8 +182,34 @@ func CommentBody(o Outcome, link string) string {
 	if link != "" {
 		fmt.Fprintf(&b, "[Full result](%s)\n\n", link)
 	}
+	writeAnchor(&b, o.Anchor)
 	b.WriteString("<sub>Updated on every push. Advisories from OSV.dev, licenses from deps.dev.</sub>\n")
 	return b.String()
+}
+
+// writeAnchor adds where the report's fingerprint was anchored, and how to
+// check it later.
+func writeAnchor(b *strings.Builder, a *AnchorNote) {
+	if a == nil || a.Digest == "" {
+		return
+	}
+	short := a.Digest
+	if len(short) > 19 {
+		short = short[:19] + "…"
+	}
+	if a.Err != "" {
+		fmt.Fprintf(b, "The report (`%s`) could not be anchored: %s. The result above does not depend on it.\n\n", short, cell(a.Err))
+		return
+	}
+	tx := a.TxID
+	if len(tx) > 12 {
+		tx = tx[:12] + "…"
+	}
+	fmt.Fprintf(b, "**Report anchored on Solana %s:** `%s` in transaction [%s](%s).", cell(a.Network), short, cell(tx), a.URL)
+	if a.ReportURL != "" {
+		fmt.Fprintf(b, " [Download the report](%s) and check it any time with `depscan verify -signer %s report.cdx.json`.", a.ReportURL, cell(a.Signer))
+	}
+	b.WriteString("\n\n")
 }
 
 func writeTable(b *strings.Builder, title string, list []model.Violation, found map[string]model.Finding, open bool) {
