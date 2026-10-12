@@ -33,16 +33,41 @@ type Receipt struct {
 	Network    string    `json:"network,omitempty"`
 	TxID       string    `json:"tx_id,omitempty"`
 	URL        string    `json:"url,omitempty"`
+	Signer     string    `json:"signer,omitempty"` // who paid for and signed the anchor, if the backend has one
 	AnchoredAt time.Time `json:"anchored_at"`
 }
 
-// New returns the backend with the given name.
+// New returns the backend with the given name, configured for anchoring.
+// The solana backend reads its settings from the environment; see
+// SolanaFromEnv.
 func New(name string) (Anchorer, error) {
 	switch name {
 	case "noop":
 		return NewNoop(), nil
+	case "solana":
+		s, err := SolanaFromEnv()
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
 	}
-	return nil, fmt.Errorf("%w: %q (available: noop)", ErrUnknownBackend, name)
+	return nil, fmt.Errorf("%w: %q (available: noop, solana)", ErrUnknownBackend, name)
+}
+
+// ForReceipt returns a backend that can verify r: the same backend, on the
+// network the receipt was anchored on unless the environment says otherwise.
+func ForReceipt(r Receipt) (Anchorer, error) {
+	switch r.Backend {
+	case "noop":
+		return NewNoop(), nil
+	case "solana":
+		s, err := solanaFromEnv(r.Network)
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	}
+	return nil, fmt.Errorf("%w: %q (available: noop, solana)", ErrUnknownBackend, r.Backend)
 }
 
 // normalize validates a digest and returns it in canonical "sha256:<hex>" form,
