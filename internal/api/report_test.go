@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -10,24 +12,26 @@ import (
 	"github.com/depscan-go/depscan/internal/anchor"
 	"github.com/depscan-go/depscan/internal/model"
 	"github.com/depscan-go/depscan/internal/report"
+	"github.com/depscan-go/depscan/internal/store"
 )
 
 func TestReport_AttachedAndServedByteForByte(t *testing.T) {
 	h := newTestHandler(t)
-	rec := h.Record("github.com/acme/shop#3@aaaaaaa", &model.ScanResult{})
+	ctx := context.Background()
+	rec, err := h.Record(ctx, store.PR, "github.com/acme/shop#3@aaaaaaa", &model.ScanResult{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	data := []byte(`{"bomFormat":"CycloneDX"}` + "\n")
 	info := ReportInfo{Digest: report.Digest(data), Anchor: &anchor.Receipt{Backend: "solana", TxID: "tx1"}}
-	if !h.AttachReport(rec.ID, data, info) {
-		t.Fatal("AttachReport on a known scan returned false")
+	if err := h.AttachReport(ctx, rec, data, info); err != nil {
+		t.Fatalf("AttachReport on a saved scan: %v", err)
 	}
-	if h.AttachReport("unknown", data, info) {
-		t.Error("AttachReport on an unknown scan should return false")
+	if err := h.AttachReport(ctx, &ScanRecord{ID: newID()}, data, info); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("AttachReport on an unknown scan = %v, want ErrNotFound", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/scans/"+rec.ID+"/report", nil)
-	req.SetPathValue("id", rec.ID)
-	w := httptest.NewRecorder()
-	h.GetReport(w, req)
+	w := get(h.GetReport, rec.ID)
 	if w.Code != http.StatusOK || w.Body.String() != string(data) || w.Header().Get("Content-Type") != "application/vnd.cyclonedx+json" {
 		t.Fatalf("GET report: %d %q %q", w.Code, w.Header().Get("Content-Type"), w.Body.String())
 	}
@@ -35,35 +39,32 @@ func TestReport_AttachedAndServedByteForByte(t *testing.T) {
 		t.Error("the served report must hash to the anchored digest")
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/scans/"+rec.ID, nil)
-	req.SetPathValue("id", rec.ID)
-	w = httptest.NewRecorder()
-	h.GetScan(w, req)
+	w = get(h.GetScan, rec.ID)
 	var got ScanRecord
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Report == nil || got.Report.Anchor.TxID != "tx1" {
 		t.Errorf("scan record = %s (%v)", w.Body.String(), err)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/scans/nope/report", nil)
-	req.SetPathValue("id", "nope")
-	w = httptest.NewRecorder()
-	h.GetReport(w, req)
-	if w.Code != http.StatusNotFound {
+	if w := get(h.GetReport, "nope"); w.Code != http.StatusNotFound {
 		t.Errorf("missing report: %d", w.Code)
 	}
 }
 
 func TestReport_AttachWhileReading(t *testing.T) {
 	h := newTestHandler(t)
-	rec := h.Record("x", &model.ScanResult{})
+	h.AllowList = true
+	ctx := context.Background()
+	rec, err := h.Record(ctx, store.PR, "x", &model.ScanResult{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(2)
-		go func() { defer wg.Done(); h.AttachReport(rec.ID, []byte("r"), ReportInfo{Digest: "d"}) }()
+		go func() { defer wg.Done(); _ = h.AttachReport(ctx, rec, []byte("r"), ReportInfo{Digest: "d"}) }()
 		go func() {
 			defer wg.Done()
-			req := httptest.NewRequest(http.MethodGet, "/scans", nil)
-			h.ListScans(httptest.NewRecorder(), req)
+			h.ListScans(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/scans", nil))
 		}()
 	}
 	wg.Wait()
