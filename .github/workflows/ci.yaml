@@ -18,6 +18,22 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A throwaway Postgres for the store's tests, on the same major version as Neon
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: depscan
+        ports:
+          - 5432:5432
+        # Over TCP: during its first start the image serves only the Unix socket
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DEPSCAN_TEST_DATABASE_URL: postgres://postgres:depscan@localhost:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v7
 
