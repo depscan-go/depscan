@@ -38,7 +38,7 @@ jobs:
       - name: Keep scheduled workflows enabled
         if: ${{ !cancelled() }}
         run: |
-          for wf in nightly.yaml watchdog.yaml upkeep.yaml; do
+          for wf in nightly.yaml watchdog.yaml upkeep.yaml uptime.yaml; do
             gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/enable"
             echo "enabled $wf"
           done
