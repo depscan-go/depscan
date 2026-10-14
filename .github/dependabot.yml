@@ -30,8 +30,9 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
-  # CI doesn't run Terraform. Before one of these is merged, Sayan checks out its branch and
-  # runs terraform init and terraform plan; the plan should say No changes.
+  # CI doesn't run Terraform. Before one of these is merged, comment "@dependabot rebase" on it
+  # so it includes the latest main; then Sayan checks out its branch and runs terraform init and
+  # terraform plan, which should say No changes.
   - package-ecosystem: terraform
     directory: /infra/terraform
     schedule:
