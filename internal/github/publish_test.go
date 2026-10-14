@@ -459,7 +459,7 @@ func TestPublisher_AddsReportLinkWithPublicURL(t *testing.T) {
 	api := &fakeGitHubAPI{}
 	p := github.NewPublisherWithBaseURL(api.server(t).URL, "tok")
 	p.DashboardURL = "https://depscan.example.com"
-	note := &github.AnchorNote{Digest: "sha256:" + strings.Repeat("ef", 32), Network: "devnet", TxID: "abc", URL: "https://explorer.solana.com/tx/abc?cluster=devnet", Signer: "S"}
+	note := &github.AnchorNote{Digest: "sha256:" + strings.Repeat("ef", 32), Network: "devnet", TxID: "abc", URL: "https://explorer.solana.com/tx/abc?cluster=devnet", Signer: "S", ReportSaved: true}
 	if err := p.Finished(context.Background(), github.Outcome{Job: prJob(sha), Result: &model.ScanResult{}, Anchor: note}, "id9"); err != nil {
 		t.Fatal(err)
 	}
@@ -469,5 +469,19 @@ func TestPublisher_AddsReportLinkWithPublicURL(t *testing.T) {
 	}
 	if note.ReportURL != "" {
 		t.Error("Finished must not change the caller's note")
+	}
+}
+
+func TestPublisher_NoReportLinkWhenNotSaved(t *testing.T) {
+	api := &fakeGitHubAPI{}
+	p := github.NewPublisherWithBaseURL(api.server(t).URL, "tok")
+	p.DashboardURL = "https://depscan.example.com"
+	note := &github.AnchorNote{Digest: "sha256:" + strings.Repeat("ef", 32), Network: "devnet", TxID: "abc", URL: "https://explorer.solana.com/tx/abc?cluster=devnet", Signer: "S"}
+	if err := p.Finished(context.Background(), github.Outcome{Job: prJob(sha), Result: &model.ScanResult{}, Anchor: note}, "id9"); err != nil {
+		t.Fatal(err)
+	}
+	c := api.ourComments(7)
+	if len(c) != 1 || strings.Contains(c[0].Body, "/scans/id9/report") || !strings.Contains(c[0].Body, "anchored on Solana devnet") {
+		t.Errorf("comment = %+v", c)
 	}
 }
