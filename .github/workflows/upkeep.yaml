@@ -1,7 +1,7 @@
 name: Upkeep
 
-# Weekly housekeeping: a reminder issue for everything in infra/expiry.yaml that's 30 days
-# away or less, and re-enabling the scheduled workflows so GitHub doesn't pause them.
+# Weekly housekeeping: reminder issues for infra/expiry.yaml, an Azure spending check, and
+# re-enabling the scheduled workflows so GitHub doesn't pause them.
 on:
   schedule:
     - cron: "0 3 * * 1" # Mondays, 08:30 in India
@@ -10,11 +10,15 @@ on:
       soon_days:
         description: "Remind about items due within this many days"
         default: "30"
+      cost_limit:
+        description: "Open an issue when this month's Azure spend (INR) is over this"
+        default: "400"
 
 permissions:
   contents: read
   issues: write # reminder issues
   actions: write # re-enable scheduled workflows
+  id-token: write # azure/login over OIDC
 
 concurrency:
   group: upkeep
@@ -32,6 +36,19 @@ jobs:
         env:
           SOON_DAYS: ${{ inputs.soon_days }}
         run: .github/scripts/remind.sh infra/expiry.yaml "${SOON_DAYS:-30}"
+
+      - uses: azure/login@v3
+        if: ${{ !cancelled() }}
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Azure spending check
+        if: ${{ !cancelled() }}
+        env:
+          COST_LIMIT: ${{ inputs.cost_limit }}
+        run: .github/scripts/spend.sh "${COST_LIMIT:-400}"
 
       # GitHub pauses scheduled workflows in public repos after 60 days without activity.
       # This runs even when a step above failed: if it stops, every scheduled check stops with it.
