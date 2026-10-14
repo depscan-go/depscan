@@ -2,6 +2,8 @@
 
 The live app runs on Azure Container Apps, set up with Terraform in `infra/terraform/`. GitHub Actions builds and deploys it.
 
+When something breaks, or to rotate a secret or rebuild everything, see [RUNBOOK.md](RUNBOOK.md).
+
 ## What runs where
 
 | Piece | Where |
