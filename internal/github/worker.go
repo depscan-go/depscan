@@ -36,8 +36,9 @@ type AnchorNote struct {
 	TxID      string
 	URL       string // block explorer
 	Signer    string
-	ReportURL string // where to download the report, when the server has a public URL
-	Err       string // why anchoring failed, if it did
+	ReportURL   string // where to download the report, when the server has a public URL
+	ReportSaved bool   // the server saved the report, so ReportURL may point at it
+	Err         string // why anchoring failed, if it did
 }
 
 type Queue struct {

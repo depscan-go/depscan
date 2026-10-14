@@ -88,7 +88,7 @@ func (p *Publisher) Finished(ctx context.Context, o Outcome, scanID string) erro
 	if p.DashboardURL != "" && scanID != "" {
 		base := strings.TrimRight(p.DashboardURL, "/")
 		link = base + "/#scan/" + url.PathEscape(scanID)
-		if o.Anchor != nil {
+		if o.Anchor != nil && o.Anchor.ReportSaved {
 			note := *o.Anchor
 			note.ReportURL = base + "/scans/" + url.PathEscape(scanID) + "/report"
 			o.Anchor = &note
