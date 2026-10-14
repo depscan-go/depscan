@@ -51,9 +51,9 @@ variable "enable_webhooks" {
 }
 
 variable "monthly_budget" {
-  description = "Monthly spend (in the billing currency, USD for Azure for Students) that triggers budget emails."
+  description = "Monthly spend that triggers budget emails, in the billing currency. This subscription bills in INR, so 800 is about $10."
   type        = number
-  default     = 10
+  default     = 800
 }
 
 variable "budget_start" {

@@ -52,6 +52,11 @@ resource "azurerm_container_app_environment" "main" {
     name                  = "Consumption"
     workload_profile_type = "Consumption"
   }
+
+  # Without a domain, a new environment means a new URL, which breaks the webhooks and shared links.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_container_app" "server" {
@@ -89,10 +94,12 @@ resource "azurerm_container_app" "server" {
     }
 
     container {
-      name   = "server"
-      image  = var.app_image
-      cpu    = 0.25
-      memory = "0.5Gi"
+      name  = "server"
+      image = var.app_image
+      # Container Apps pairs 2 GiB with each vCPU. At this size the free allowance covers
+      # about 100 awake hours a month, far more than our traffic needs.
+      cpu    = 0.5
+      memory = "1Gi"
 
       dynamic "env" {
         for_each = local.app_secrets
@@ -125,6 +132,8 @@ resource "azurerm_container_app" "server" {
   }
 
   lifecycle {
+    # A new app means a new URL too; see the environment.
+    prevent_destroy = true
     ignore_changes = [
       # CI deploys new images; without this, every apply would roll back to var.app_image.
       template[0].container[0].image,
