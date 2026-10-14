@@ -22,7 +22,7 @@ Merge to `main` → CI (test, lint, docker) → CD builds the image → pushes i
 
 Changes only under `infra/`, `e2e/` or `*.md` don't deploy. Every night, `e2e/run.sh --all` tests the code and the live app.
 
-Dependabot opens update PRs every week (Terraform's monthly), and they go through the same CI. CI doesn't run Terraform, so before a Terraform update is merged, Sayan checks it out and runs `terraform init` and `terraform plan`. The plan should say No changes.
+Dependabot opens update PRs every week (Terraform's monthly), and they go through the same CI. CI doesn't run Terraform, so before a Terraform update is merged, comment `@dependabot rebase` on it, so it includes the latest `main`. Then Sayan checks it out and runs `terraform init` and `terraform plan`, which should say No changes. Planning an older branch can show changes that aren't real, like a resource added to `main` since then being destroyed.
 
 ## Running Terraform
 
