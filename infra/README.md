@@ -10,7 +10,7 @@ When something breaks, or to rotate a secret or rebuild everything, see [RUNBOOK
 |---|---|
 | depscan-server | Container App `depscan-server` (Express environment, Malaysia West). Scales to zero when idle |
 | Images | `ghcr.io/depscan-go/depscan`, public |
-| Database | Neon Postgres (AWS Singapore). Its URL is wired in, but the server doesn't read it yet |
+| Database | Neon Postgres 18 (AWS Singapore), free plan. The server keeps every scan there; see "Neon" in `RUNBOOK.md` |
 | Secrets | Key Vault `kv-depscan-50385a`: `database-url`, `webhook-secret`, `github-token`, `solana-key` |
 | Anchoring | Solana devnet. Reports are signed by `4TnT5hvYUEkfAPxznU7LpVVbfj3EsLunY6jJ8Djj7oRj`, which needs devnet SOL for fees (one anchor is 0.000005 SOL) |
 | Logs and alerts | Log Analytics (0.1 GB/day cap) and a ₹800/month budget (about $10; the subscription bills in INR). GitHub workflows open an issue when something needs attention: Watchdog checks the logs for errors every 30 minutes, Uptime checks that the site answers every 2 hours, and Upkeep checks spending and coming expiry dates every Monday |
