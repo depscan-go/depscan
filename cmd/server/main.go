@@ -16,6 +16,7 @@ import (
 	"github.com/depscan-go/depscan/internal/github"
 	"github.com/depscan-go/depscan/internal/policy"
 	"github.com/depscan-go/depscan/internal/scan"
+	"github.com/depscan-go/depscan/internal/store"
 )
 
 func main() {
@@ -46,6 +47,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "invalid -scan-root: %v\n", err)
 		os.Exit(1)
 	}
+	handler.AllowList = localOnly(*addr)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", handler.Dashboard)
@@ -78,7 +80,8 @@ func main() {
 			if o.Err != nil {
 				log.Printf("webhook: %s failed after %s: %v", label, o.Duration.Round(time.Millisecond), o.Err)
 			} else {
-				scanID = handler.Record(label, o.Result).ID
+				rec, _ := handler.Record(context.Background(), store.PR, label, o.Result)
+				scanID = rec.ID
 				log.Printf("webhook: %s scanned in %s: %d lockfiles, %d deps, %d violations",
 					label, o.Duration.Round(time.Millisecond), o.Files, len(o.Result.Deps), len(o.Result.Violations))
 				if anchorer != nil {
@@ -89,7 +92,7 @@ func main() {
 					data, info, err := anchorScan(ctx, anchorer, p, o)
 					cancel()
 					if data != nil {
-						handler.AttachReport(scanID, data, info)
+						_ = handler.AttachReport(context.Background(), rec, data, info)
 						o.Anchor = anchorNote(info)
 					}
 					if err != nil {

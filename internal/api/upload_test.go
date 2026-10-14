@@ -137,9 +137,9 @@ func TestScanUpload_ScansLockfilesWithTheirLayout(t *testing.T) {
 		t.Errorf("parsed deps = %v, want %s", names, want)
 	}
 
-	// The scan is recorded like any other, so GET /scans/{id} finds it.
-	if _, ok := h.scans[got.ID]; !ok {
-		t.Error("upload scan was not recorded")
+	// The scan is saved like any other, so GET /scans/{id} finds it.
+	if _, err := h.Scans.Get(context.Background(), got.ID); err != nil {
+		t.Errorf("upload scan was not saved: %v", err)
 	}
 
 	// The staging folder is gone.

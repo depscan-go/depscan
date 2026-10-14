@@ -15,6 +15,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/depscan-go/depscan/internal/store"
 )
 
 // Scanning a folder picked in the browser.
@@ -140,7 +142,8 @@ func (h *Handler) ScanUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record := h.Record(name, result)
+	// A failed save is logged; the result is still the answer.
+	record, _ := h.Record(r.Context(), store.Other, name, result)
 	status := http.StatusOK
 	if len(result.Violations) > 0 {
 		status = http.StatusUnprocessableEntity

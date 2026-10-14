@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +17,7 @@ import (
 	"github.com/depscan-go/depscan/internal/anchor"
 	"github.com/depscan-go/depscan/internal/model"
 	"github.com/depscan-go/depscan/internal/scan"
+	"github.com/depscan-go/depscan/internal/store"
 )
 
 type ScanRecord struct {
@@ -33,12 +36,23 @@ type ReportInfo struct {
 	AnchorError string          `json:"anchor_error,omitempty"`
 }
 
+// listLimit is how many scans GET /scans returns, newest first: as many as
+// the dashboard keeps in a browser.
+const listLimit = 300
+
 type Handler struct {
 	engine   *scan.Engine
 	scanRoot string
-	mu       sync.RWMutex
-	scans    map[string]*ScanRecord
-	reports  map[string][]byte // report bytes by scan ID
+
+	// Scans keeps scan records and reports. New starts with a memory store;
+	// main swaps in Postgres before serving when DATABASE_URL is set.
+	Scans store.Store
+	// AllowList lets GET /scans list every scan. Set it only on a server that
+	// accepts connections from its own computer only.
+	AllowList bool
+
+	pruneMu   sync.Mutex
+	lastPrune time.Time
 }
 
 func New(engine *scan.Engine, scanRoot string) (*Handler, error) {
@@ -53,8 +67,7 @@ func New(engine *scan.Engine, scanRoot string) (*Handler, error) {
 	return &Handler{
 		engine:   engine,
 		scanRoot: root,
-		scans:    make(map[string]*ScanRecord),
-		reports:  make(map[string][]byte),
+		Scans:    store.NewMemory(store.MemoryLimits),
 	}, nil
 }
 
@@ -88,8 +101,29 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
+// writeRecord sends a saved record, formatted exactly like writeJSON.
+func writeRecord(w http.ResponseWriter, data []byte) {
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, data, "", "  "); err != nil {
+		log.Printf("store: reading a damaged record failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "this scan's saved record is damaged")
+		return
+	}
+	buf.WriteByte('\n')
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		log.Printf("writing JSON response: %v", err)
+	}
+}
+
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// unavailable answers a request the store couldn't serve.
+func unavailable(w http.ResponseWriter) {
+	writeError(w, http.StatusServiceUnavailable, "scan storage is unavailable; try again in a minute")
 }
 
 func newID() string {
@@ -101,6 +135,23 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
+// validID says whether id looks like one newID made: 32 lowercase hex
+// characters. No other ID can exist, so it never reaches the store, and a
+// request for a made-up ID never wakes the database.
+func validID(id string) bool {
+	if len(id) != 32 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		if c := id[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// Healthz never touches the store: the dashboard calls it every minute while
+// a tab is open, which would keep the database awake.
 func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",
@@ -135,7 +186,8 @@ func (h *Handler) CreateScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record := h.Record(req.Path, result)
+	// A failed save is logged; the result is still the answer.
+	record, _ := h.Record(r.Context(), store.Other, req.Path, result)
 
 	status := http.StatusOK
 	if len(result.Violations) > 0 {
@@ -145,45 +197,81 @@ func (h *Handler) CreateScan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, record)
 }
 
-func (h *Handler) Record(label string, result *model.ScanResult) *ScanRecord {
+// Record saves a finished scan and returns its record. If saving fails it
+// still returns the record, with the error (already logged): the caller has
+// the result, and only its link won't work later. A finished scan is saved
+// even if the caller has gone, so ctx's cancellation is ignored.
+func (h *Handler) Record(ctx context.Context, kind store.Kind, label string, result *model.ScanResult) (*ScanRecord, error) {
 	record := &ScanRecord{
 		ID:        newID(),
 		Path:      label,
 		ScannedAt: time.Now().UTC(),
 		Result:    result,
 	}
-	h.mu.Lock()
-	h.scans[record.ID] = record
-	h.mu.Unlock()
-	return record
+	data, err := json.Marshal(record)
+	if err == nil {
+		err = h.Scans.Save(context.WithoutCancel(ctx), store.Scan{ID: record.ID, Kind: kind, ScannedAt: record.ScannedAt, Record: data})
+	}
+	if err != nil {
+		log.Printf("store: saving scan %s failed: %v", record.ID, err)
+		return record, err
+	}
+	h.maybePrune()
+	return record, nil
 }
 
-// AttachReport keeps a scan's report bytes and anchor details with its
-// record, until the server restarts.
-func (h *Handler) AttachReport(id string, data []byte, info ReportInfo) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	rec, ok := h.scans[id]
-	if !ok {
-		return false
+// maybePrune applies the retention rules in the background, at most once an
+// hour per process: in practice, at the first save after each wake-up.
+func (h *Handler) maybePrune() {
+	h.pruneMu.Lock()
+	due := time.Since(h.lastPrune) >= time.Hour
+	if due {
+		h.lastPrune = time.Now()
 	}
-	// Records are never changed in place: a request may be encoding the old one.
+	h.pruneMu.Unlock()
+	if !due {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := h.Scans.Prune(ctx, time.Now()); err != nil {
+			log.Printf("store: pruning failed: %v", err)
+		}
+	}()
+}
+
+// AttachReport saves a pull request scan's report, byte for byte as it was
+// hashed, and adds its digest and anchor to the scan's saved record.
+func (h *Handler) AttachReport(ctx context.Context, rec *ScanRecord, data []byte, info ReportInfo) error {
 	updated := *rec
 	updated.Report = &info
-	h.scans[id] = &updated
-	h.reports[id] = data
-	return true
+	record, err := json.Marshal(&updated)
+	if err == nil {
+		err = h.Scans.SetReport(context.WithoutCancel(ctx), rec.ID, record, data)
+	}
+	if err != nil {
+		log.Printf("store: saving the report of scan %s failed: %v", rec.ID, err)
+	}
+	return err
 }
 
 // GetReport serves the CycloneDX report of a scan, byte for byte as it was
 // hashed and anchored, so `depscan verify` can check it.
 func (h *Handler) GetReport(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	h.mu.RLock()
-	data, ok := h.reports[id]
-	h.mu.RUnlock()
-	if !ok {
-		writeError(w, http.StatusNotFound, "no report for this scan (reports are kept for pull request scans until the server restarts)")
+	var data []byte
+	err := store.ErrNotFound
+	if validID(id) {
+		data, err = h.Scans.Report(r.Context(), id)
+	}
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "no report for this scan (only pull request scans have one)")
+		return
+	case err != nil:
+		log.Printf("store: reading the report of scan %s failed: %v", id, err)
+		unavailable(w)
 		return
 	}
 	w.Header().Set("Content-Type", "application/vnd.cyclonedx+json")
@@ -196,30 +284,38 @@ func (h *Handler) GetReport(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetScan(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing scan id")
-		return
+	var s store.Scan
+	err := store.ErrNotFound
+	if validID(id) {
+		s, err = h.Scans.Get(r.Context(), id)
 	}
-
-	h.mu.RLock()
-	record, ok := h.scans[id]
-	h.mu.RUnlock()
-
-	if !ok {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "scan not found")
-		return
+	case err != nil:
+		log.Printf("store: reading scan %s failed: %v", id, err)
+		unavailable(w)
+	default:
+		writeRecord(w, s.Record)
 	}
-
-	writeJSON(w, http.StatusOK, record)
 }
 
+// ListScans returns the newest scans. Only a local server lists them; on a
+// public one, each scan opens through its own link.
 func (h *Handler) ListScans(w http.ResponseWriter, r *http.Request) {
-	h.mu.RLock()
-	records := make([]*ScanRecord, 0, len(h.scans))
-	for _, rec := range h.scans {
-		records = append(records, rec)
+	if !h.AllowList {
+		writeError(w, http.StatusNotFound, "the scan list is only available on a local server; open a scan through its link")
+		return
 	}
-	h.mu.RUnlock()
-
+	scans, err := h.Scans.List(r.Context(), listLimit)
+	if err != nil {
+		log.Printf("store: listing scans failed: %v", err)
+		unavailable(w)
+		return
+	}
+	records := make([]json.RawMessage, len(scans))
+	for i, s := range scans {
+		records[i] = s.Record
+	}
 	writeJSON(w, http.StatusOK, records)
 }
