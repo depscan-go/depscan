@@ -89,10 +89,12 @@ resource "azurerm_container_app" "server" {
     }
 
     container {
-      name   = "server"
-      image  = var.app_image
-      cpu    = 0.25
-      memory = "0.5Gi"
+      name  = "server"
+      image = var.app_image
+      # Container Apps pairs 2 GiB with each vCPU. At this size the free allowance covers
+      # about 100 awake hours a month, far more than our traffic needs.
+      cpu    = 0.5
+      memory = "1Gi"
 
       dynamic "env" {
         for_each = local.app_secrets
