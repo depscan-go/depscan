@@ -117,8 +117,8 @@ func Run(t *testing.T, open Opener) {
 		mustSave(t, s, scan(10, store.Other, now.Add(-3*time.Hour)))
 		mustSave(t, s, scan(11, store.PR, now.Add(-1*time.Hour)))
 		mustSave(t, s, scan(12, store.Other, now.Add(-2*time.Hour)))
-		mustSave(t, s, scan(13, store.Other, now.Add(-31*day)))   // expired
-		mustSave(t, s, scan(14, store.PR, now.Add(-3*365*day)))   // old, but PR scans don't expire
+		mustSave(t, s, scan(13, store.Other, now.Add(-31*day))) // expired
+		mustSave(t, s, scan(14, store.PR, now.Add(-3*365*day))) // old, but PR scans don't expire
 		all, err := s.List(ctx, 0)
 		if err != nil {
 			t.Fatal(err)

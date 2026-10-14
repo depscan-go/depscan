@@ -31,11 +31,11 @@ type Outcome struct {
 // AnchorNote says where a scan's report was anchored, for the pull request
 // comment. Anchoring never changes the verdict.
 type AnchorNote struct {
-	Digest    string // sha256:<hex> of the CycloneDX report
-	Network   string
-	TxID      string
-	URL       string // block explorer
-	Signer    string
+	Digest      string // sha256:<hex> of the CycloneDX report
+	Network     string
+	TxID        string
+	URL         string // block explorer
+	Signer      string
 	ReportURL   string // where to download the report, when the server has a public URL
 	ReportSaved bool   // the server saved the report, so ReportURL may point at it
 	Err         string // why anchoring failed, if it did
