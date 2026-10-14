@@ -1,8 +1,16 @@
-# Copy to terraform.tfvars (gitignored) and fill in.
+# Copy to terraform.tfvars (gitignored) and fill in. Never commit the real values.
 subscription_id = "<Azure for Students subscription id>"
 location        = "<a region allowed by sys.regionrestriction>"
 
-# The app's secrets come from Key Vault (database-url, webhook-secret, github-token).
-# On a fresh setup, store them first, or switch them off here:
+# Budget emails, and the teammates who can run the infra (their Entra object IDs).
+alert_emails    = ["<email>"]
+team_object_ids = []
+
+# A new budget must start in the current month: when rebuilding, set this to the 1st of it.
+# budget_start = "2026-10-01T00:00:00Z"
+
+# The app's secrets come from Key Vault (database-url, webhook-secret, github-token, solana-key).
+# On a fresh setup, switch them off until they're stored (see "Rebuild from scratch" in infra/RUNBOOK.md):
 # wire_database_url = false
 # enable_webhooks   = false
+# enable_anchoring  = false
