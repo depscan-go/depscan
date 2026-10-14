@@ -31,7 +31,7 @@ open_titles=$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" \
     echo "would open: $title, $when"
     continue
   fi
-  body=$(printf '@%s %s is due **%s** (%s).\n\nWhat to do: %s\n\nOpened by the Upkeep workflow from `infra/expiry.yaml`. When it is done, move the date in that file and close this issue.' \
+  body=$(printf '@%s %s on **%s** (%s).\n\nWhat to do: %s\n\nOpened by the Upkeep workflow from `infra/expiry.yaml`. When it is done, move the date in that file and close this issue.' \
     "$owner" "$what" "$due" "$when" "$action")
   gh api "repos/$GITHUB_REPOSITORY/issues" -f title="$title" -f body="$body" --jq '"opened: \(.html_url)"' </dev/null
 done
