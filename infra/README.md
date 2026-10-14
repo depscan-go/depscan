@@ -11,7 +11,7 @@ The live app runs on Azure Container Apps, set up with Terraform in `infra/terra
 | Database | Neon Postgres (AWS Singapore). Its URL is wired in, but the server doesn't read it yet |
 | Secrets | Key Vault `kv-depscan-50385a`: `database-url`, `webhook-secret`, `github-token`, `solana-key` |
 | Anchoring | Solana devnet. Reports are signed by `4TnT5hvYUEkfAPxznU7LpVVbfj3EsLunY6jJ8Djj7oRj`, which needs devnet SOL for fees (one anchor is 0.000005 SOL) |
-| Logs and alerts | Log Analytics (0.1 GB/day cap) and a ₹800/month budget (about $10; the subscription bills in INR). Every 30 minutes the Watchdog workflow checks the logs for errors and opens a GitHub issue if it finds any |
+| Logs and alerts | Log Analytics (0.1 GB/day cap) and a ₹800/month budget (about $10; the subscription bills in INR). GitHub workflows open an issue when something needs attention: Watchdog checks the logs for errors every 30 minutes, Uptime checks that the site answers every 2 hours, and Upkeep checks spending and coming expiry dates every Monday |
 | Terraform state | Storage account `depscantf16049` |
 
 ## How a change reaches production

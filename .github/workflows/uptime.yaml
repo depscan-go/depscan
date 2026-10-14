@@ -1,0 +1,56 @@
+name: Uptime
+
+# Every 2 hours, checks that the live app answers. The Watchdog reads logs, and a dead app
+# writes none, so this is what notices an outage. Checking more often would keep the app
+# awake past Azure's free allowance.
+on:
+  schedule:
+    - cron: "15 */2 * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Page to check. Leave it empty for the live app; give a failing URL to test the alert."
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+env:
+  LIVE_URL: https://depscan-server.thankfulbeach-61661ef7.malaysiawest.azurecontainerapps.io/healthz
+  TITLE: Live site is down
+  NOTIFY: sayanx64
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INPUT_URL: ${{ inputs.url }}
+    steps:
+      - name: Check the live app
+        run: |
+          url=${INPUT_URL:-$LIVE_URL}
+          issue=$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" \
+            --jq '[.[] | select(.title == env.TITLE and .pull_request == null)][0].number // empty')
+          # 3 tries, 20 s apart: waking up from zero takes a few seconds.
+          if curl -fsS -m 60 --retry 2 --retry-delay 20 --retry-all-errors -o /dev/null "$url"; then
+            echo "up: $url"
+            if [ -n "$issue" ]; then
+              gh api "repos/$GITHUB_REPOSITORY/issues/$issue/comments" -f body="Back up: $url answered at $(date -u +%FT%TZ)." --jq .html_url
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/$issue" -f state=closed --jq .state
+            fi
+          else
+            echo "DOWN: $url"
+            body="@$NOTIFY $url didn't answer at $(date -u +%FT%TZ), after 3 tries. See \"The site is down\" in infra/RUNBOOK.md."
+            if [ -n "$issue" ]; then
+              gh api "repos/$GITHUB_REPOSITORY/issues/$issue/comments" -f body="$body" --jq .html_url
+            else
+              gh api "repos/$GITHUB_REPOSITORY/issues" -f title="$TITLE" -f body="$body" --jq .html_url
+            fi
+            exit 1
+          fi
