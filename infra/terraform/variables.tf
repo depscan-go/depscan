@@ -79,3 +79,9 @@ variable "solana_rpc" {
   type        = string
   default     = "devnet"
 }
+
+variable "team_object_ids" {
+  description = "Entra object IDs of teammates (guests in this directory). Set it in terraform.tfvars, so no IDs end up in the repo."
+  type        = list(string)
+  default     = []
+}
