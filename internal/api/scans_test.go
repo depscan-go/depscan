@@ -35,13 +35,13 @@ var errDown = errors.New("dial tcp: connection refused")
 // downStore fails every call, like Neon when it's down or out of compute hours.
 type downStore struct{}
 
-func (downStore) Save(context.Context, store.Scan) error                   { return errDown }
+func (downStore) Save(context.Context, store.Scan) error                  { return errDown }
 func (downStore) SetReport(context.Context, string, []byte, []byte) error { return errDown }
 func (downStore) Get(context.Context, string) (store.Scan, error)         { return store.Scan{}, errDown }
 func (downStore) Report(context.Context, string) ([]byte, error)          { return nil, errDown }
 func (downStore) List(context.Context, int) ([]store.Scan, error)         { return nil, errDown }
 func (downStore) Prune(context.Context, time.Time) error                  { return errDown }
-func (downStore) Close()                                                   {}
+func (downStore) Close()                                                  {}
 
 // spyStore wraps a memory store. It counts reads, notes each save's kind,
 // refuses a canceled context like Postgres would, and signals every prune.
