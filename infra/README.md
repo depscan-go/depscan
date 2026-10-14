@@ -20,6 +20,8 @@ Merge to `main` → CI (test, lint, docker) → CD builds the image → pushes i
 
 Changes only under `infra/`, `e2e/` or `*.md` don't deploy. Every night, `e2e/run.sh --all` tests the code and the live app.
 
+Dependabot opens update PRs every week (Terraform's monthly), and they go through the same CI. CI doesn't run Terraform, so before a Terraform update is merged, Sayan checks it out and runs `terraform init` and `terraform plan`. The plan should say No changes.
+
 ## Running Terraform
 
 You need access to the Azure for Students subscription.
