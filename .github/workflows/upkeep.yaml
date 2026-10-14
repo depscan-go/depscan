@@ -1,0 +1,44 @@
+name: Upkeep
+
+# Weekly housekeeping: a reminder issue for everything in infra/expiry.yaml that's 30 days
+# away or less, and re-enabling the scheduled workflows so GitHub doesn't pause them.
+on:
+  schedule:
+    - cron: "0 3 * * 1" # Mondays, 08:30 in India
+  workflow_dispatch:
+    inputs:
+      soon_days:
+        description: "Remind about items due within this many days"
+        default: "30"
+
+permissions:
+  contents: read
+  issues: write # reminder issues
+  actions: write # re-enable scheduled workflows
+
+concurrency:
+  group: upkeep
+  cancel-in-progress: false
+
+jobs:
+  upkeep:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Reminders
+        env:
+          SOON_DAYS: ${{ inputs.soon_days }}
+        run: .github/scripts/remind.sh infra/expiry.yaml "${SOON_DAYS:-30}"
+
+      # GitHub pauses scheduled workflows in public repos after 60 days without activity.
+      # This runs even when a step above failed: if it stops, every scheduled check stops with it.
+      - name: Keep scheduled workflows enabled
+        if: ${{ !cancelled() }}
+        run: |
+          for wf in nightly.yaml watchdog.yaml upkeep.yaml; do
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/enable"
+            echo "enabled $wf"
+          done

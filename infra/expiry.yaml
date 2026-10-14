@@ -1,0 +1,28 @@
+# Everything that expires or needs a yearly check. The Upkeep workflow opens a reminder
+# issue once an item is 30 days away or less. Add an item whenever something gets a date,
+# and move the date forward when it's done.
+items:
+  - what: GitHub token "depscan server (sandbox)" expires
+    due: 2027-01-12
+    action: Move to the GitHub App, or make a new fine-grained token (depscan-sandbox only; Contents read, Commit statuses and Pull requests read and write). Store it as the Key Vault secret github-token; Sayan then runs terraform plan and apply. See "A token expired" in infra/RUNBOOK.md.
+    owner: sayanx64
+  - what: Azure for Students credit renews
+    due: 2027-10-03
+    action: Renew in the Azure portal's Education hub while still a student. If the credit lapses, the site goes down. See "The credit lapsed" in infra/RUNBOOK.md.
+    owner: sayanx64
+  - what: Yearly rebuild drill
+    due: 2027-10-15
+    action: Follow "Yearly drill" in infra/RUNBOOK.md, then log how it went there.
+    owner: sayanx64
+  - what: Yearly upgrade review
+    due: 2027-10-15
+    action: Check the azurerm provider's major version, the Go version in go.mod, and what changed in Azure Container Apps Express. Plan any upgrades as PRs.
+    owner: sayanx64
+  - what: Azure for Students credit renews
+    due: 2028-10-03
+    action: Renew again, the same as in 2027, so the site runs to the end of 2028.
+    owner: sayanx64
+  - what: Yearly rebuild drill
+    due: 2028-10-15
+    action: Follow "Yearly drill" in infra/RUNBOOK.md, then log how it went there.
+    owner: sayanx64
