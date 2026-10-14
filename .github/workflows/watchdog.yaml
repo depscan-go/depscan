@@ -33,8 +33,9 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # 5xx responses, failed background webhook scans and panics. The 35-minute window
-      # overlaps the previous run a little, so nothing slips through (a line may repeat).
+      # 5xx responses, failed background webhook scans, failed database calls and panics.
+      # The 35-minute window overlaps the previous run a little, so nothing slips through
+      # (a line may repeat).
       - name: Look for errors in the last 35 minutes
         id: logs
         run: |
@@ -44,6 +45,7 @@ jobs:
           | where ContainerAppName_s == '$CONTAINER_APP'
           | where Log_s matches regex @' (GET|POST|PUT|PATCH|DELETE|HEAD) \S+ 5\d\d '
               or (Log_s has 'webhook:' and Log_s has 'failed after')
+              or (Log_s has 'store:' and Log_s has 'failed')
               or Log_s has 'panic'
           | order by TimeGenerated asc
           | project Log_s"
