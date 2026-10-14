@@ -9,7 +9,8 @@ The live app runs on Azure Container Apps, set up with Terraform in `infra/terra
 | depscan-server | Container App `depscan-server` (Express environment, Malaysia West). Scales to zero when idle |
 | Images | `ghcr.io/depscan-go/depscan`, public |
 | Database | Neon Postgres (AWS Singapore). Its URL is wired in, but the server doesn't read it yet |
-| Secrets | Key Vault `kv-depscan-50385a`: `database-url`, `webhook-secret`, `github-token` |
+| Secrets | Key Vault `kv-depscan-50385a`: `database-url`, `webhook-secret`, `github-token`, `solana-key` |
+| Anchoring | Solana devnet. Reports are signed by `4TnT5hvYUEkfAPxznU7LpVVbfj3EsLunY6jJ8Djj7oRj`, which needs devnet SOL for fees (one anchor is 0.000005 SOL) |
 | Logs and alerts | Log Analytics (0.1 GB/day cap) and a $10/month budget. Every 30 minutes the Watchdog workflow checks the logs for errors and opens a GitHub issue if it finds any |
 | Terraform state | Storage account `depscantf16049` |
 
@@ -49,7 +50,8 @@ unset V
 |---|---|---|
 | `database-url` | `DATABASE_URL` | Neon's direct URL, not the pooled one |
 | `webhook-secret` | `DEPSCAN_WEBHOOK_SECRET` | Must match the secret in each GitHub webhook |
-| `github-token` | `GITHUB_TOKEN` | Fine-grained, public repos read-only. **Expires around 2027-01-09**, so renew it before then |
+| `github-token` | `GITHUB_TOKEN` | Fine-grained, for the watched repos only: Contents read, Commit statuses and Pull requests read and write. **Expires around 2027-01-12**, so renew it (or move to a GitHub App) before then |
+| `solana-key` | `DEPSCAN_SOLANA_KEY` | Devnet keypair made with `depscan keygen`. Top it up at faucet.solana.com |
 
 ## Webhooks
 
@@ -59,6 +61,8 @@ The live app watches `sayanx64/depscan-sandbox`. To add a repo, open its Setting
 - Content type: `application/json`
 - Secret: the `webhook-secret` value
 - Events: Pull requests
+
+Each pull request then gets a `depscan` commit status and one comment, which is updated on every push. Both are posted as the owner of `github-token`, so that token must include the repo. The report is anchored on Solana, and anyone can check it: download it from the dashboard (`/scans/<id>/report`) and run `depscan verify`.
 
 ## Azure for Students quirks
 

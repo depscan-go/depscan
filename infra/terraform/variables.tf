@@ -67,3 +67,15 @@ variable "alert_emails" {
   type        = list(string)
   default     = []
 }
+
+variable "enable_anchoring" {
+  description = "Anchor PR scan reports on Solana: sets DEPSCAN_ANCHOR=solana and copies the Key Vault secret 'solana-key' into the app as DEPSCAN_SOLANA_KEY. The secret must exist before plan, and its address needs SOL for fees."
+  type        = bool
+  default     = true
+}
+
+variable "solana_rpc" {
+  description = "Solana network for anchoring: devnet, testnet, mainnet-beta or an RPC URL. Devnet is free but can be reset, so its anchors are for demos."
+  type        = string
+  default     = "devnet"
+}
