@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -208,5 +210,53 @@ func TestListScans_OnlyOnALocalServer(t *testing.T) {
 		if got[i].ScannedAt.After(got[i-1].ScannedAt) {
 			t.Fatalf("not newest first at %d: %s after %s", i, got[i].ScannedAt, got[i-1].ScannedAt)
 		}
+	}
+}
+
+// ctxStore fails reads with the request's context error, as Postgres does
+// when the client has gone.
+type ctxStore struct{ store.Store }
+
+func (c ctxStore) Get(ctx context.Context, id string) (store.Scan, error) {
+	if err := ctx.Err(); err != nil {
+		return store.Scan{}, err
+	}
+	return c.Store.Get(ctx, id)
+}
+
+func (c ctxStore) Report(ctx context.Context, id string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return c.Store.Report(ctx, id)
+}
+
+func (c ctxStore) List(ctx context.Context, limit int) ([]store.Scan, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return c.Store.List(ctx, limit)
+}
+
+func TestStoreReads_ClientGoneIsNotAnAlarm(t *testing.T) {
+	h := newTestHandler(t)
+	h.Scans = ctxStore{Store: store.NewMemory(store.MemoryLimits)}
+	h.AllowList = true
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	for name, handle := range map[string]http.HandlerFunc{"scan": h.GetScan, "report": h.GetReport, "list": h.ListScans} {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // the visitor closed the tab while the database woke up
+		req := httptest.NewRequest(http.MethodGet, "/scans/x", nil).WithContext(ctx)
+		req.SetPathValue("id", strings.Repeat("a", 32))
+		w := httptest.NewRecorder()
+		handle(w, req)
+		if w.Code >= 500 {
+			t.Errorf("%s: %d: a client that left must not look like a server failure", name, w.Code)
+		}
+	}
+	if strings.Contains(logs.String(), "store:") {
+		t.Errorf("a client that left was logged as a store failure:\n%s", logs.String())
 	}
 }

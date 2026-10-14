@@ -121,8 +121,19 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-// unavailable answers a request the store couldn't serve.
-func unavailable(w http.ResponseWriter) {
+// statusClientClosed is nginx's code for a request whose client left first.
+const statusClientClosed = 499
+
+// storeFailed answers a request the store couldn't serve, with a 503 and a
+// "store: … failed" line, which the Watchdog alerts on. A client that has
+// already gone isn't a store failure (Postgres just stops the query), so it
+// gets 499 and no log line.
+func storeFailed(w http.ResponseWriter, r *http.Request, what string, err error) {
+	if r.Context().Err() != nil {
+		w.WriteHeader(statusClientClosed)
+		return
+	}
+	log.Printf("store: %s failed: %v", what, err)
 	writeError(w, http.StatusServiceUnavailable, "scan storage is unavailable; try again in a minute")
 }
 
@@ -270,8 +281,7 @@ func (h *Handler) GetReport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no report for this scan (only pull request scans have one)")
 		return
 	case err != nil:
-		log.Printf("store: reading the report of scan %s failed: %v", id, err)
-		unavailable(w)
+		storeFailed(w, r, "reading the report of scan "+id, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/vnd.cyclonedx+json")
@@ -293,8 +303,7 @@ func (h *Handler) GetScan(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "scan not found")
 	case err != nil:
-		log.Printf("store: reading scan %s failed: %v", id, err)
-		unavailable(w)
+		storeFailed(w, r, "reading scan "+id, err)
 	default:
 		writeRecord(w, s.Record)
 	}
@@ -309,8 +318,7 @@ func (h *Handler) ListScans(w http.ResponseWriter, r *http.Request) {
 	}
 	scans, err := h.Scans.List(r.Context(), listLimit)
 	if err != nil {
-		log.Printf("store: listing scans failed: %v", err)
-		unavailable(w)
+		storeFailed(w, r, "listing scans", err)
 		return
 	}
 	records := make([]json.RawMessage, len(scans))
