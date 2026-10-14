@@ -44,11 +44,11 @@ terraform plan -out tfplan    # expect 1 to change: the app's secret
 terraform apply tfplan
 ```
 
-Then move its date in `infra/expiry.yaml`, and delete the old token on GitHub.
+Once the app is using it (see "After changing a secret or setting"), move its date in `infra/expiry.yaml` and delete the old token on GitHub. Deleting it earlier breaks the copy of the app that's still running.
 
 ## Rotating a secret
 
-Store the new value with `read -rsp` and `az keyvault secret set`, as in "A token expired". Then Sayan runs `terraform plan` and `apply` so the app gets it.
+Store the new value with `read -rsp` and `az keyvault secret set`, as in "A token expired". Then Sayan runs `terraform plan` and `apply`, and the app gets it the next time it starts (see "After changing a secret or setting").
 
 | Secret | Where the new value comes from | Also do |
 |---|---|---|
@@ -56,6 +56,18 @@ Store the new value with `read -rsp` and `az keyvault secret set`, as in "A toke
 | `webhook-secret` | `openssl rand -hex 32` | put the same value in each watched repo's webhook settings |
 | `github-token` | see "A token expired" | move its date in `infra/expiry.yaml` |
 | `solana-key` | `go run ./cmd/depscan keygen -out <file>`, then `az keyvault secret set --vault-name kv-depscan-50385a -n solana-key --file <file> -o none`, then `shred -u <file>` | send devnet SOL to the new address (faucet.solana.com) and update the address in `README.md` |
+
+## After changing a secret or setting
+
+Express doesn't restart a running app when its settings change. `terraform apply` updates them, but the copy that's already running keeps the old values until it goes to sleep (about 5 minutes with no visitors) and wakes up again. `az containerapp revision restart` doesn't work on Express.
+
+The app runs the new values once its replica started after your apply:
+
+```bash
+az containerapp replica list -g rg-depscan -n depscan-server --query "[].properties.createdTime" -o tsv
+```
+
+No output means it's asleep, and the next visit starts it with the new values. A time from before your apply means it's still the old copy: wait until nobody is using the site, then check again.
 
 ## Solana devnet was reset
 
@@ -100,7 +112,7 @@ Use this for a new subscription. It takes about an hour.
    terraform apply tfplan
    ```
 6. Store the four secrets in the new vault (see "Rotating a secret"; `terraform output key_vault_name` gives the vault's name). If `az` says Forbidden, wait a few minutes: your role on the new vault takes a while to apply.
-7. Run `terraform plan -out tfplan` and `terraform apply tfplan` again, without the `-var` flags. Expect `0 to add, 1 to change`: the app gets its secrets.
+7. Run `terraform plan -out tfplan` and `terraform apply tfplan` again, without the `-var` flags. Expect `0 to add, 1 to change`: the app gets its secrets the next time it starts (see "After changing a secret or setting").
 8. In GitHub (repo Settings → Secrets and variables → Actions → Variables), set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID` from `terraform output github_oidc_variables`.
 9. The URL has changed, so follow "The URL changed".
 10. Run CD once (Actions → CD → Run workflow) to deploy the current image by digest.
@@ -134,7 +146,7 @@ Once a year, rebuild a full copy next to the real one to prove this runbook stil
    ```
    If `az` says Forbidden, wait a few minutes and run the command again.
 4. Give the app its secrets: `terraform plan -out tfplan "${VARS[@]}"` should say `0 to add, 1 to change, 0 to destroy`. Then run `terraform apply tfplan`.
-5. Run the live tests against it: `cd "$REPO" && DEPSCAN_URL=$(terraform -chdir="$DRILL" output -raw app_url) bash e2e/tests/07-live.sh`. Every check should pass.
+5. Wait until the copy runs with its secrets: `az containerapp replica list -g rg-depscandr -n depscandr-server --query "[].properties.createdTime" -o tsv` must print nothing or a time after step 4's apply (see "After changing a secret or setting"). Then run the live tests against it: `cd "$REPO" && DEPSCAN_URL=$(terraform -chdir="$DRILL" output -raw app_url) bash e2e/tests/07-live.sh`. Every check should pass.
 6. Tear it down. `prevent_destroy` guards the environment and the app, so remove it, but only in the copy:
    ```bash
    cd "$DRILL"
@@ -145,10 +157,12 @@ Once a year, rebuild a full copy next to the real one to prove this runbook stil
    cd "$REPO" && rm -rf "$(dirname "$DRILL")"
    date -u +%H:%M   # end time
    ```
-   Never run the `sed` line in `infra/terraform`. If destroying `rg-depscandr` fails because it still holds resources, run `az group delete -n rg-depscandr --yes`, then plan and apply the destroy again.
+   Never run the `sed` line in `infra/terraform`. If deleting the environment fails with `polling after Delete: internal-error: polling support for the Content-Type "" was not implemented`, Azure deleted it anyway; azurerm just can't follow Express's delete. Check that `az containerapp env show -g rg-depscandr -n cae-depscandr` says `ResourceNotFound`, then plan the destroy again with `-var wire_database_url=false -var enable_webhooks=false -var enable_anchoring=false` added (the vault with the secrets is already gone), and apply it. If destroying `rg-depscandr` fails because it still holds resources, run `az group delete -n rg-depscandr --yes`, then plan and apply the destroy again.
 7. Add a row to the drill log below, and fix any step in this runbook that was wrong.
 
 ### Drill log
 
 | Date | Took | What broke | Fix |
 |---|---|---|---|
+| 2026-10-14 | 39 min | Step 5: the live tests reached the old copy of the app. Express keeps a running app's settings after an apply, so the webhook check got 405 | New section "After changing a secret or setting"; step 5 now waits for a fresh replica |
+| 2026-10-14 | - | Step 6: azurerm 5.8 couldn't follow the environment's delete (`polling ... Content-Type ""`), though Azure did delete it | Step 6 now says how to finish the teardown |

@@ -76,6 +76,7 @@ Each pull request then gets a `depscan` commit status and one comment, which is 
 - Express can't pull private images, so the GHCR package has to stay public.
 - Express remembers a failed image reference and never retries it. That's why CD deploys by digest, not by tag.
 - Express doesn't report request metrics, so errors are found in the server's logs.
+- Changing a secret or setting doesn't restart a running app. It takes effect when the app next wakes from sleep; see "After changing a secret or setting" in `RUNBOOK.md`.
 - Azure alert emails never arrive on this (free) subscription: alerts fire, but nobody gets notified. That's why the Watchdog workflow reports errors as a GitHub issue instead.
 - Only these regions are allowed: `malaysiawest`, `eastasia`, `koreacentral`, `uaenorth` and `indiasouthcentral` (which has no Container Apps).
 - GitHub's OIDC subject includes the repo's IDs. If the repo is ever recreated, update `github_oidc_subject_prefix` in `variables.tf`.
