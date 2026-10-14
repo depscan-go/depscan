@@ -48,3 +48,11 @@ resource "azurerm_role_assignment" "gha_logs_reader" {
   principal_id         = azurerm_user_assigned_identity.gha.principal_id
   principal_type       = "ServicePrincipal"
 }
+
+# The Upkeep workflow reads the month's spend.
+resource "azurerm_role_assignment" "gha_cost_reader" {
+  scope                = "/subscriptions/${var.subscription_id}"
+  role_definition_name = "Cost Management Reader"
+  principal_id         = azurerm_user_assigned_identity.gha.principal_id
+  principal_type       = "ServicePrincipal"
+}
