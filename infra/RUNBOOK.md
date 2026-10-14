@@ -84,6 +84,24 @@ Rebuilding the Container Apps environment or the app, or moving to a domain, cha
 
 The app's own `DEPSCAN_PUBLIC_URL`, used for links in PR comments, follows by itself on the next `terraform apply`.
 
+## Neon (the scan database)
+
+The server keeps every scan in Neon's free plan: uploads and folder scans for 30 days, pull request scans until the saved scans pass 700 MB (then the oldest go, uploads first). The compute is fixed at 0.25 CU. It sleeps 5 minutes after the last query and takes about 2.5 seconds to wake. `/healthz` never touches it, so an open dashboard tab doesn't keep it awake.
+
+What happens when a limit is hit (Neon never deletes data for it):
+
+- **1 GB of storage:** new scans can't be saved; old links still work.
+- **100 CU-hours a month** (about 400 hours awake at 0.25 CU): the compute is suspended until next month. Scans still run and show results, but no link works.
+- **5 GB of egress a month:** the same as running out of CU-hours.
+
+Either way the Watchdog opens its "Live server errors" issue, from the `store: … failed` lines or the 503s. Usage is on the project's Usage page in the Neon console.
+
+To delete one scan by hand, for example when someone asks, open the SQL editor in the Neon console and run:
+
+```sql
+DELETE FROM scans WHERE id = '<scan id>';
+```
+
 ## Restore an old Terraform state
 
 The state storage keeps every version of the state for good, and deleted blobs for 14 days. If an apply went badly wrong, open the storage account in the Azure portal → Containers → `tfstate` → `depscan.tfstate` → Versions, pick the last good one, and make it the current version. Then run `terraform plan` to see what differs from Azure.
@@ -136,7 +154,7 @@ Once a year, rebuild a full copy next to the real one to prove this runbook stil
    terraform plan -out tfplan "${VARS[@]}" -var wire_database_url=false -var enable_webhooks=false -var enable_anchoring=false
    ```
    The plan must only add resources: `0 to change, 0 to destroy`. Anything else means it's pointing at the real state, so stop. Also check that nothing in it names the real setup: `terraform show -no-color tfplan | grep -cE 'rg-depscan[/"]|depscan-server|kv-depscan-'` must print `0`. Then run `terraform apply tfplan`.
-3. Store throwaway secrets. While the server doesn't read `DATABASE_URL`, a placeholder is fine; once it does, use a Neon branch's URL.
+3. Store throwaway secrets. With the placeholder `database-url` the copy can't open a database, so it keeps scans in memory and logs `store: opening Postgres failed`; that's expected. To drill the database too, use a Neon branch's URL instead.
    ```bash
    KV=$(terraform output -raw key_vault_name)
    for s in database-url github-token; do az keyvault secret set --vault-name "$KV" -n "$s" --value drill-placeholder -o none; done

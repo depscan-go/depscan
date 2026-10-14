@@ -22,7 +22,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     environment:
-      # Not read yet. The server stores scans in memory until the Postgres store lands.
+      # The server keeps every scan here (in memory without it).
       DATABASE_URL: postgres://depscan:depscan@postgres:5432/depscan?sslmode=disable
     ports:
       - "8080:8080"

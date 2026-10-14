@@ -168,13 +168,31 @@ Only the lockfiles at the pull request's head commit are downloaded.
 Set `DEPSCAN_ANCHOR=solana` and `DEPSCAN_SOLANA_KEY` (devnet by default) and
 the server also builds each pull request scan's CycloneDX report, anchors its
 SHA-256, and puts the transaction in the pull request comment. The report is
-kept at `GET /scans/{id}/report` until the server restarts. The server logs
-the wallet's address and balance at startup.
+kept at `GET /scans/{id}/report` (see "Saving scans"). The server logs the
+wallet's address and balance at startup.
 
-There is no database, and none is needed for the proof: GitHub keeps the
-comment, the ledger keeps the anchor, and `depscan verify -signer <address>`
-finds the anchor of any copy of the report. Anchoring never changes a scan's
-result; if it fails, the comment says why.
+The proof doesn't depend on the server: GitHub keeps the comment, the ledger
+keeps the anchor, and `depscan verify -signer <address>` finds the anchor of
+any copy of the report. Anchoring never changes a scan's result; if it fails,
+the comment says why.
+
+## Saving scans
+
+Set `DATABASE_URL` to a Postgres connection string and the server keeps every
+scan there, so its link keeps working after a restart:
+
+- dashboard uploads and folder scans for 30 days
+- pull request scans, with their reports, until the saved scans pass 700 MB;
+  then the oldest go first, uploads before pull request scans
+
+Without it, scans are kept in memory until the server restarts. If the
+database can't be reached, scans still run and return their result; only
+their links won't work, and the log says `store: … failed`.
+
+`GET /scans` lists the newest 300 scans only when the server listens on
+`127.0.0.1`, `::1` or `localhost`. Anywhere else, including docker compose
+(which listens on `:8080` inside its container), a scan opens only through
+its own link.
 
 ## HTTP API
 
@@ -184,7 +202,8 @@ result; if it fails, the comment says why.
 | `GET /healthz` | Liveness |
 | `POST /scans` | Scan a folder inside the scan root: `{"path": "..."}` |
 | `POST /scans/upload` | Scan lockfiles sent by the dashboard (gzip JSON, 1 MB limit) |
-| `GET /scans`, `GET /scans/{id}` | Results kept in memory until the server restarts |
+| `GET /scans` | The newest 300 scans, on a local server only (see "Saving scans") |
+| `GET /scans/{id}` | One scan's result |
 | `GET /scans/{id}/report` | The CycloneDX report of an anchored pull request scan |
 | `GET /policy` | The loaded policy, read-only |
 | `POST /webhooks/github` | GitHub webhook deliveries, when enabled |
@@ -198,12 +217,23 @@ same body either way.
 - With the dashboard, only `go.mod` and `package-lock.json` files go from the
   browser to the depscan server you run.
 - With anchoring, only the report's SHA-256 goes to the Solana network.
+- The depscan server keeps each scan's result: with `DATABASE_URL`, in its
+  database for 30 days (pull request scans until space runs short); otherwise
+  in memory until it restarts.
 
 ## Development
 
 ```bash
 make test    # go test -race ./...
 make lint    # golangci-lint run ./...
+```
+
+The store's Postgres tests run when `DEPSCAN_TEST_DATABASE_URL` points at a
+throwaway database (CI starts one):
+
+```bash
+docker run -d --rm --name depscan-test-pg -e POSTGRES_PASSWORD=depscan -p 55432:5432 postgres:18-alpine
+DEPSCAN_TEST_DATABASE_URL='postgres://postgres:depscan@127.0.0.1:55432/postgres?sslmode=disable' make test
 ```
 
 | Package | |
@@ -215,4 +245,5 @@ make lint    # golangci-lint run ./...
 | `internal/report` | CycloneDX reports and their SHA-256 |
 | `internal/anchor` | Anchoring backends (`solana`, `noop`) and receipts |
 | `internal/github` | Webhooks, lockfile fetching, status and comment |
+| `internal/store` | Where scans are kept: memory, or Postgres with `DATABASE_URL` |
 | `internal/api` | HTTP handlers and the embedded dashboard |

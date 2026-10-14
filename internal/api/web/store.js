@@ -1,6 +1,7 @@
 /* History, license reviews and folder handles, saved in this browser with
    IndexedDB, so they survive closing the tab, restarting the server and
-   rebooting the machine. The server keeps scans in memory only.
+   rebooting the machine. The server keeps its own copy too, in its database
+   when it has one (DATABASE_URL).
 
    Stores (database "depscan", version 1):
      scans    one entry per scan: { id, at, label, source, ms, record, summary }
