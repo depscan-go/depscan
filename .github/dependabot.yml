@@ -1,0 +1,40 @@
+# Update PRs for what we build and run on. npm is left out on purpose: every npm manifest
+# in this repo is an e2e or testdata fixture that's vulnerable by design.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: docker
+    directory: /deploy
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+
+  # CI doesn't run Terraform. Before one of these is merged, Sayan checks out its branch and
+  # runs terraform init and terraform plan; the plan should say No changes.
+  - package-ecosystem: terraform
+    directory: /infra/terraform
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(deps)"
