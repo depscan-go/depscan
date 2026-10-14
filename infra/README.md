@@ -36,6 +36,8 @@ terraform apply tfplan
 
 Terraform sets the image only when the app is first created, and CD deploys after that. So `apply` never rolls back a deploy.
 
+Terraform also refuses to destroy or replace the Container Apps environment and the app (`prevent_destroy`), because either one would change the URL. To remove them on purpose, delete those lines first; the drill teardown in `infra/RUNBOOK.md` does this in a throwaway copy.
+
 ## Secrets
 
 Set or rotate a secret in Key Vault, then run plan and apply to copy it into the app:
