@@ -11,6 +11,14 @@ locals {
   app_secrets = merge(
     var.wire_database_url ? { DATABASE_URL = "database-url" } : {},
     var.enable_webhooks ? { DEPSCAN_WEBHOOK_SECRET = "webhook-secret", GITHUB_TOKEN = "github-token" } : {},
+    var.enable_anchoring ? { DEPSCAN_SOLANA_KEY = "solana-key" } : {},
+  )
+
+  # Plain settings (not secret). The public URL is built from the environment's domain,
+  # because the app can't refer to its own address.
+  app_env = merge(
+    { DEPSCAN_PUBLIC_URL = "https://${var.prefix}-server.${azurerm_container_app_environment.main.default_domain}" },
+    var.enable_anchoring ? { DEPSCAN_ANCHOR = "solana", DEPSCAN_SOLANA_RPC = var.solana_rpc } : {},
   )
 }
 
@@ -91,6 +99,14 @@ resource "azurerm_container_app" "server" {
         content {
           name        = env.key
           secret_name = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.app_env
+        content {
+          name  = env.key
+          value = env.value
         }
       }
     }
