@@ -31,12 +31,17 @@ const (
 	maxUploadFiles   = 500
 	maxUploadPathLen = 512
 	maxUploadNameLen = 120
+	// maxUploadsAtOnce is how many uploads are scanned at the same time. Each
+	// one can use a few times its unpacked size in memory, so more would wait
+	// in line on a 1 GiB app; instead they get 429 and try again.
+	maxUploadsAtOnce = 2
 )
 
 var (
 	// maxUploadUnpacked caps the request after gzip is undone. The request as
-	// sent is already capped at 1 MB by the MaxBytes middleware.
-	maxUploadUnpacked int64 = 64 << 20
+	// sent is already capped at 1 MB by the MaxBytes middleware. Real lockfiles
+	// are far smaller: a large monorepo's package-lock.json is about 2 MB.
+	maxUploadUnpacked int64 = 10 << 20
 
 	// uploadTempDir is where scans are staged; "" means the system default.
 	// Tests point it at a private folder.
@@ -76,6 +81,17 @@ func (h *Handler) ScanUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
 		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
+
+	// Take a slot before reading the body, so a burst of uploads can't run the
+	// app out of memory. No free slot: try again in a few seconds.
+	select {
+	case h.uploads <- struct{}{}:
+		defer func() { <-h.uploads }()
+	default:
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusTooManyRequests, "the server is busy with other uploads; try again in a few seconds")
 		return
 	}
 

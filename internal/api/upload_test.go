@@ -241,3 +241,34 @@ func TestUploadLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestScanUpload_UnpackedLimitIs10MB(t *testing.T) {
+	h, _ := newUploadHandler(t)
+	// 11 MB of lockfile, gzipped to far under the 1 MB request limit.
+	body := uploadBody(t, uploadRequest{Name: "x", Files: []uploadFile{{Path: "go.mod", Content: strings.Repeat("0", 11<<20)}}}, true)
+	rec := postUpload(MaxBytes(http.HandlerFunc(h.ScanUpload)), body, map[string]string{"Content-Encoding": "gzip"})
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("11 MB unpacked: status = %d, want 413; body: %s", rec.Code, rec.Body)
+	}
+}
+
+func TestScanUpload_TwoAtATime(t *testing.T) {
+	h, _ := newUploadHandler(t)
+	upload := func() *httptest.ResponseRecorder {
+		body := uploadBody(t, uploadRequest{Name: "shop", Files: []uploadFile{{Path: "go.mod", Content: testGoMod}}}, false)
+		return postUpload(http.HandlerFunc(h.ScanUpload), body, nil)
+	}
+	// Two uploads are already running.
+	h.uploads <- struct{}{}
+	h.uploads <- struct{}{}
+	if rec := upload(); rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
+		t.Errorf("third upload: %d (Retry-After %q), want 429 with Retry-After", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	<-h.uploads // one finishes
+	if rec := upload(); rec.Code == http.StatusTooManyRequests {
+		t.Errorf("with a free slot: %d %s", rec.Code, rec.Body)
+	}
+	if n := len(h.uploads); n != 1 {
+		t.Errorf("slots in use after that upload = %d, want 1 (it must give its slot back)", n)
+	}
+}
