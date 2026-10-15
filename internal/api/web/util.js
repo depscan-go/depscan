@@ -39,12 +39,19 @@
   }
 
   /* ---------- toast, copy, download ---------- */
+  // A short message at the bottom. It stays longer when there is more to read,
+  // and a hairline under it runs down for as long as it stays.
   function toast(msg, kind) {
     const t = $('toast'); if (!t) return;
-    t.textContent = msg; t.dataset.kind = kind || '';
-    t.classList.add('on');
-    clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 2200);
+    const life = Math.min(5200, Math.max(2200, 1200 + String(msg).length * 38));
+    t.innerHTML = '<span class="ti">' + (kind === 'bad' ? TOAST_BAD : TOAST_OK) + '</span><span>' + esc(msg) + '</span><i class="tl" aria-hidden="true"></i>';
+    t.dataset.kind = kind || '';
+    t.style.setProperty('--life', life + 'ms');
+    t.classList.remove('on'); void t.offsetWidth; t.classList.add('on');
+    clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), life);
   }
+  const TOAST_OK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const TOAST_BAD = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.8M8 11.1v.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
   async function copy(text, label) {
     try { await navigator.clipboard.writeText(text); toast(label || 'Copied'); return true; }
     catch (e) {
@@ -262,17 +269,19 @@
 
   // A focus-trapping side sheet used for package details and license reviews.
   const sheet = (() => {
-    let lastFocus = null, onClose = null;
+    let lastFocus = null, onClose = null, closing = 0;
     const el = () => $('sheet');
     function open(o) {
       const s = el();
+      // Opening again while the last one is still sliding out: keep the sheet, drop the pending hide.
+      if (closing) { clearTimeout(closing); closing = 0; }
       $('sheetKicker').innerHTML = o.kicker || '';
       $('sheetTitle').innerHTML = o.title || '';
       $('sheetBody').innerHTML = o.body || '';
       $('sheetBody').scrollTop = 0;
       onClose = o.onClose || null;
-      if (s.hidden) {
-        lastFocus = document.activeElement;
+      if (s.hidden || !s.classList.contains('on')) {
+        if (s.hidden) lastFocus = document.activeElement;
         s.hidden = false; void s.offsetWidth; s.classList.add('on');
         document.documentElement.classList.add('sheet-open');
       }
@@ -282,17 +291,18 @@
       setTimeout(() => s.querySelector('.sheet-panel').focus({ preventScroll: true }), 30);
     }
     function close() {
-      const s = el(); if (s.hidden) return;
+      const s = el(); if (s.hidden || !s.classList.contains('on')) return;
       s.classList.remove('on');
       document.documentElement.classList.remove('sheet-open');
-      const done = () => { s.hidden = true; $('sheetBody').innerHTML = ''; };
-      if (reduced()) done(); else setTimeout(done, 280);
+      const done = () => { closing = 0; s.hidden = true; $('sheetBody').innerHTML = ''; };
+      // Hide only after the panel has slid all the way out (.5s in app.css).
+      if (reduced()) done(); else closing = setTimeout(done, 520);
       if (onClose) { const f = onClose; onClose = null; f(); }
       if (lastFocus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
     }
     document.addEventListener('click', (e) => { if (e.target.closest('#sheet [data-close]')) close(); });
     document.addEventListener('keydown', (e) => {
-      const s = el(); if (!s || s.hidden) return;
+      const s = el(); if (!s || s.hidden || !s.classList.contains('on')) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
       if (e.key === 'Tab') {
         const f = Array.from(s.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), textarea, select, [tabindex]:not([tabindex="-1"])')).filter((x) => x.offsetParent !== null);
@@ -302,7 +312,7 @@
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
       }
     }, true);
-    return { open, close, get isOpen() { const s = el(); return s && !s.hidden; } };
+    return { open, close, get isOpen() { const s = el(); return !!s && !s.hidden && s.classList.contains('on'); } };
   })();
 
   // Any [data-copy] button copies its text.
@@ -312,11 +322,62 @@
     e.preventDefault(); e.stopPropagation();
     copy(b.dataset.copy, b.dataset.copyLabel || 'Copied to the clipboard').then((ok) => {
       if (!ok) return;
-      b.classList.add('done'); setTimeout(() => b.classList.remove('done'), 1400);
+      // The button itself says it worked: a tick and "Copied", at the same width, then back.
+      if (!b.classList.contains('done')) {
+        b._was = b.innerHTML;
+        b.style.minWidth = b.offsetWidth + 'px';
+        const label = b.querySelector('span') || b.textContent.trim() ? '<span>Copied</span>' : '';
+        b.innerHTML = icon.check + label;
+      }
+      b.classList.add('done');
+      clearTimeout(b._done);
+      b._done = setTimeout(() => { b.classList.remove('done'); if (b._was != null) { b.innerHTML = b._was; b._was = null; } b.style.minWidth = ''; }, 1600);
     });
   });
 
+  // Parts of a page settle in as they scroll into view, once. The classes come
+  // off when the motion is over, so hover and other transitions work as before.
+  const revealIO = 'IntersectionObserver' in window ? new IntersectionObserver((en) => {
+    en.forEach((x) => {
+      if (!x.isIntersecting) return;
+      const el = x.target, d = +el.style.getPropertyValue('--d') || 0;
+      revealIO.unobserve(el);
+      el.classList.add('in');
+      setTimeout(() => { el.classList.remove('rv', 'rv-line', 'in'); el.style.removeProperty('--d'); }, 2200 + d * 75);
+    });
+  }, { rootMargin: '0px 0px -6% 0px', threshold: 0.06 }) : null;
+  // reveal(elements, { line: true } for a survey line along the top hairline, { rise: false } to keep it in place)
+  function reveal(items, o) {
+    o = o || {};
+    if (!revealIO || reduced()) return;
+    Array.from(items || []).forEach((el, i) => {
+      if (!el || el.classList.contains('rv') || el.classList.contains('rv-line')) return;
+      if (o.rise !== false) el.classList.add('rv');
+      if (o.line) el.classList.add('rv-line');
+      el.style.setProperty('--d', String(o.stagger === false ? 0 : Math.min(i, 8) + (o.offset || 0)));
+      revealIO.observe(el);
+    });
+  }
+
+  // Rows that scroll sideways (tabs, filters, chapters) fade at the edge that has more.
+  const EDGE_SEL = '.tabs, .toolbar .seg, .chapters';
+  function syncEdge(el) {
+    const max = el.scrollWidth - el.clientWidth;
+    el.classList.toggle('edge-l', max > 2 && el.scrollLeft > 2);
+    el.classList.toggle('edge-r', max > 2 && el.scrollLeft < max - 2);
+  }
+  function edges(root) { (root || document).querySelectorAll(EDGE_SEL).forEach(syncEdge); }
+  document.addEventListener('scroll', (e) => { const el = e.target; if (el && el.matches && el.matches(EDGE_SEL)) syncEdge(el); }, { capture: true, passive: true });
+  addEventListener('resize', () => edges());
+  // Watch a part of the page that redraws itself (filters, tabs) and keep its edges right.
+  function watchEdges(el) {
+    if (!el || !('MutationObserver' in window)) return;
+    let raf = 0;
+    new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; edges(el); }); }).observe(el, { childList: true, subtree: true });
+  }
+
   Object.assign(DS, {
+    reveal, edges, watchEdges,
     $, esc, reduced, plural, fmtN, clamp, fmtBytes, fmtMs, ago, when, toast, copy, download, slug,
     SEVS, SEV, sevOf, sevRank, sevColor, nv, cmpVer, maxVer,
     licUnknown, licCheck, licFamily, licIds, FAM, SPDX_COMMON,

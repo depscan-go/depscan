@@ -49,6 +49,22 @@
 
   /* ================================================================ theme and motion */
   const THEMES = ['system', 'dark', 'light'];
+  // A theme change opens from the button as a growing circle, where the browser can.
+  function switchTheme(mode, from) {
+    const d = document.documentElement;
+    if (!document.startViewTransition || reduced() || !from) { applyTheme(mode); return; }
+    const r = from.getBoundingClientRect(), x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+    const end = Math.ceil(Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y)));
+    d.classList.add('vt-theme');
+    let vt;
+    try { vt = document.startViewTransition(() => applyTheme(mode)); }
+    catch (e) { d.classList.remove('vt-theme'); applyTheme(mode); return; }
+    vt.ready.then(() => {
+      d.animate({ clipPath: ['circle(0px at ' + x + 'px ' + y + 'px)', 'circle(' + end + 'px at ' + x + 'px ' + y + 'px)'] },
+        { duration: 760, easing: 'cubic-bezier(.65, 0, .35, 1)', pseudoElement: '::view-transition-new(root)' });
+    }).catch(() => {});
+    vt.finished.catch(() => {}).then(() => d.classList.remove('vt-theme'));
+  }
   function applyTheme(mode) {
     const d = document.documentElement;
     if (mode === 'system') d.removeAttribute('data-theme'); else d.setAttribute('data-theme', mode);
@@ -76,25 +92,41 @@
     const [name, id] = h.split('/');
     return { name: VIEWS[name] ? name : 'scan', id: id ? decodeURIComponent(id) : '' };
   }
+  // The red rule under the current section. It glides with the Web Animations API
+  // rather than a CSS transition, which a page's view transition would freeze.
   function moveNav(instant) {
     const a = document.querySelector('.nav a[aria-current="page"]'), ind = $('navInd');
     if (!a || !ind) return;
-    if (instant) ind.style.transition = 'none';
-    ind.style.width = a.offsetWidth + 'px'; ind.style.transform = 'translateX(' + a.offsetLeft + 'px)';
-    if (instant) { void ind.offsetWidth; ind.style.transition = ''; }
+    const w = a.offsetWidth + 'px', x = 'translateX(' + a.offsetLeft + 'px)';
+    // Start from where the rule is now, even halfway through a previous glide.
+    const busy = moveNav.anim && moveNav.anim.playState === 'running', cs = busy ? getComputedStyle(ind) : null;
+    const fromW = busy ? cs.width : ind.style.width, fromX = busy ? cs.transform : ind.style.transform;
+    ind.style.width = w; ind.style.transform = x;
+    if (instant || reduced() || !fromW || (fromW === w && fromX === x) || !ind.animate) return;
+    if (moveNav.anim) moveNav.anim.cancel();
+    moveNav.anim = ind.animate([{ width: fromW, transform: fromX }, { width: w, transform: x }], { duration: 700, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+  }
+  function markNav(name) {
+    document.querySelectorAll('.nav a').forEach((a) => { if (a.dataset.route === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+    moveNav(false);
   }
   function swapTo(name) {
     for (const k in VIEWS) $(VIEWS[k]).hidden = k !== name;
-    document.querySelectorAll('.nav a').forEach((a) => { if (a.dataset.route === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-    moveNav(false);
+    markNav(name);
   }
   async function route(first) {
     const { name, id } = parseHash();
     const prev = app.route;
     if (prev) scrollMemo[prev] = scrollY;
     if (name !== prev) {
+      // The red rule starts gliding before the page swap: a transition begun inside
+      // a view transition's update stays frozen until that transition ends.
       const go = () => { swapTo(name); if (!first && name !== 'scan') scrollTo(0, scrollMemo[name] || 0); };
-      if (!first && document.startViewTransition && !reduced()) await document.startViewTransition(go).updateCallbackDone.catch(() => {});
+      if (!first && document.startViewTransition && !reduced()) {
+        markNav(name);
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        await document.startViewTransition(go).updateCallbackDone.catch(() => {});
+      }
       else go();
       app.route = name;
       if (first) moveNav(true);
@@ -109,6 +141,7 @@
     if (demo) { if (name === 'how') demo.enter(); else demo.leave(); }
     if (name === 'history') renderHistory();
     if (name === 'policy') renderPolicy();
+    DS.edges(); chrome();
     if (name === 'scan' && id && (!app.entry || app.entry.id !== id)) {
       const e = (await DS.store.getScan(id)) || (await scanFromServer(id));
       if (e) showEntry(e, { scroll: true });
@@ -369,6 +402,7 @@
     if (opt.scroll) $('results').scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
     renderRecent();
     buildRail();
+    chrome();
   }
 
   /* ---------------- the rail beside a result ---------------- */
@@ -514,15 +548,21 @@
   async function syncServer() {
     // Scans made by other tabs or by pull request webhooks live on the server
     // until it restarts; copy any we have not saved yet.
+    // Returns how many scans were added, so the page only redraws when something changed.
+    let added = 0;
     try {
       const { res, data } = await getJSON('/scans');
-      if (!res.ok || !Array.isArray(data)) return;
-      const have = new Set((await DS.store.listScans()).map((e) => e.id));
+      if (!res.ok || !Array.isArray(data)) return 0;
+      const saved = new Map((await DS.store.listScans()).map((e) => [e.id, e]));
       for (const rec of data) {
-        if (!rec || !rec.id || have.has(rec.id)) continue;
-        await DS.store.putScan(entryFromRecord(rec));
+        if (!rec || !rec.id) continue;
+        const have = saved.get(rec.id);
+        if (!have) { await DS.store.putScan(entryFromRecord(rec)); added++; }
+        // A pull request scan saved before its report was anchored: keep the anchor too.
+        else if (rec.report && have.record && !have.record.report) { have.record.report = rec.report; await DS.store.putScan(have); added++; }
       }
     } catch (e) { /* offline: the saved history is still shown */ }
+    return added;
   }
   function entryFromRecord(rec) {
     const entry = { id: rec.id, at: Date.parse(rec.scanned_at) || Date.now(), label: rec.path, source: guessSource(rec.path), ms: 0, record: rec };
@@ -550,7 +590,7 @@
   }
   async function renderHistory(skipSync) {
     const root = $('historyRoot');
-    if (!skipSync) { syncServer().then(() => renderHistory(true)); }
+    if (!skipSync) { syncServer().then((n) => { if (n && app.route === 'history') renderHistory(true); }); }
     const all = await DS.store.listScans();
     const usage = await DS.store.usage();
     let h = '<div class="page-head"><div><p class="eyebrow"><span class="ey-dot" aria-hidden="true"></span>' + (all.length ? plural(all.length, 'scan') + ' kept in this browser' : 'Kept in this browser') + '</p><h1 class="h1" id="histTitle">History</h1><p class="lede">Every scan you run is saved in this browser, so it is still here after you close the tab, restart the server or turn the computer off. Open a scan to see its full result, or compare it with an earlier scan of the same project.</p></div>' +
@@ -586,7 +626,8 @@
         const where = s.kind === 'pr' ? 'Pull request' : s.kind === 'folder' ? 'Picked folder' + (s.files && s.files.length ? ', ' + plural(s.files.length, 'lockfile') : '') : (s.path || e.label);
         return '<div class="hrow"><span class="ic">' + kindIcon(s) + '</span><button class="nm" type="button" data-open="' + esc(e.id) + '"><b>' + esc(s.name || e.label) + '</b><span>' + esc(where) + '</span></button>' +
           '<span class="vd"><i class="dot" style="--c:var(--' + VCOL[v] + ')"></i>' + VWORD[v] + '<span class="small" style="color:var(--muted)">' + esc(new Date(e.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })) + (e.ms ? ', ' + fmtMs(e.ms) : '') + '</span></span>' +
-          '<span class="ct">' + plural(sm.deps || 0, 'package') + ', ' + fmtN(sm.vulnPkgs || 0) + ' with advisories' + (sm.blockPkgs ? ', <b style="color:var(--critical-t);font-weight:500">' + sm.blockPkgs + ' blocking</b>' : '') + '</span>' +
+          '<span class="ct">' + plural(sm.deps || 0, 'package') + ', ' + fmtN(sm.vulnPkgs || 0) + ' with advisories' + (sm.blockPkgs ? ', <b style="color:var(--critical-t);font-weight:500">' + sm.blockPkgs + ' blocking</b>' : '') +
+            (e.record && e.record.report && e.record.report.anchor ? ', <span style="color:var(--clean-t)">anchored on Solana</span>' : '') + '</span>' +
           '<span class="act"><button class="icon-btn" type="button" data-del="' + esc(e.id) + '" aria-label="' + (hist.confirm === e.id ? 'Confirm delete' : 'Delete this scan') + '" title="' + (hist.confirm === e.id ? 'Click again to delete' : 'Delete') + '"' + (hist.confirm === e.id ? ' style="color:var(--critical-t);background:color-mix(in srgb,var(--critical) 14%,transparent)"' : '') + '>' + icon.trash + '</button></span></div>';
       }).join('') + '</div>';
     });
@@ -594,6 +635,9 @@
     h += '<p class="store-line"><span>' + plural(all.length, 'scan') + ' saved in this browser' + (usage && usage.usage ? ', about ' + fmtBytes(usage.usage) : '') + '.</span><span>Keeps the newest ' + DS.store.KEEP + '.</span><span>Export to move them to another browser or computer.</span></p>';
     root.innerHTML = h;
     wireHistory(all);
+    // Only when the page opens: typing in the search box redraws without motion.
+    if (!skipSync) { DS.reveal(root.querySelectorAll('.pcard')); DS.reveal(root.querySelectorAll('.tl-day'), { offset: 2 }); }
+    DS.edges(root);
   }
   function wireHistory(all) {
     const root = $('historyRoot');
@@ -671,6 +715,7 @@
         '<div class="stack"><h4 class="small">Fail CI on unknown licenses</h4>' + codeBlock('block_unknown_license: true', 'setting') + '<h4 class="small">Also block moderate advisories</h4>' + codeBlock('block_severities:\n  - CRITICAL\n  - HIGH\n  - MODERATE', 'setting') + '</div></div></section>' +
       '</div>';
     root.innerHTML = h;
+    DS.reveal(root.querySelectorAll('.pol-card'));
     const sim = () => {
       const raw = $('simSev').value, trans = $('simScope').value === 'trans', id = $('simId').value.trim();
       const exc = id ? (p.exceptions || []).find((e) => e.id.toLowerCase() === id.toLowerCase() && (!e.expires || e.expires >= today)) : null;
@@ -700,7 +745,7 @@
     if (open) { renderStatus(); checkHealth(); }
   });
   document.addEventListener('click', (e) => { const pop = $('statusPop'); if (!pop.hidden && !pop.contains(e.target)) { pop.hidden = true; $('statusBtn').setAttribute('aria-expanded', 'false'); } });
-  $('themeBtn').addEventListener('click', () => { const cur = $('themeBtn').dataset.mode || 'system'; applyTheme(THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length]); });
+  $('themeBtn').addEventListener('click', () => { const cur = $('themeBtn').dataset.mode || 'system'; switchTheme(THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length], $('themeBtn')); });
   $('motionBtn').addEventListener('click', () => applyMotion($('motionBtn').getAttribute('aria-pressed') === 'true'));
   addEventListener('keydown', (e) => {
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
@@ -708,8 +753,31 @@
     if (app.route !== 'scan' || typing || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === '/') { e.preventDefault(); $('pathIn').focus(); $('pathIn').select(); }
   });
-  addEventListener('scroll', () => { $('bar').classList.toggle('solid', scrollY > 8); }, { passive: true });
-  addEventListener('resize', () => moveNav(true));
+  addEventListener('scroll', () => { $('bar').classList.toggle('solid', scrollY > 8); chrome(); }, { passive: true });
+  addEventListener('resize', () => { moveNav(true); chrome(); });
+
+  // Once per frame while scrolling: the progress hairline under the bar, and
+  // the Learn button stepping up when the walkthrough's controls reach it.
+  let chromeRaf = 0;
+  function chrome() { if (!chromeRaf) chromeRaf = requestAnimationFrame(syncChrome); }
+  function syncChrome() {
+    chromeRaf = 0;
+    const max = document.documentElement.scrollHeight - innerHeight, prog = $('barProg');
+    const long = max > innerHeight * 1.2;
+    prog.classList.toggle('on', long);
+    if (long) prog.style.setProperty('--sp', Math.min(1, Math.max(0, scrollY / max)).toFixed(4));
+    const fab = $('learnFab'), tr = app.route === 'how' && !document.fullscreenElement ? $('transport') : null;
+    let lift = 0;
+    if (tr && fab.offsetWidth) {
+      const t = tr.getBoundingClientRect();
+      const top = fab.offsetTop, left = fab.offsetLeft, bottom = top + fab.offsetHeight, right = left + fab.offsetWidth;
+      if (t.height && t.right > left - 8 && t.left < right + 8 && t.bottom > top - 8 && t.top < bottom + 8) lift = -Math.min(bottom - t.top + 12, top - 12);
+    }
+    document.documentElement.style.setProperty('--fab-lift', Math.round(lift) + 'px');
+    // Lifted, the button sits at the end of the caption bar: keep the caption clear of it.
+    document.documentElement.style.setProperty('--cap-pad', lift ? fab.offsetWidth + 16 + 'px' : '0px');
+  }
+  document.addEventListener('fullscreenchange', chrome);
 
   // Small screens: the sections slide in from the right.
   function setMenu(open) {
@@ -749,14 +817,52 @@
     document.documentElement.addEventListener('mouseleave', () => { document.documentElement.classList.remove('has-cursor'); shown = false; });
   })();
 
-  // The walkthrough preview on the landing view: one frame from the result step.
+  // Panels catch a soft light where the pointer is (--mx, --my; see .card::after).
+  if (matchMedia('(pointer: fine)').matches) {
+    let lit = null, lx = 0, ly = 0, litRaf = 0;
+    addEventListener('pointermove', (e) => {
+      const c = e.target.closest && e.target.closest('.card, .pcard, .pol-card');
+      if (!c) return;
+      lit = c; lx = e.clientX; ly = e.clientY;
+      if (!litRaf) litRaf = requestAnimationFrame(() => {
+        litRaf = 0;
+        const r = lit.getBoundingClientRect();
+        lit.style.setProperty('--mx', Math.round(lx - r.left) + 'px'); lit.style.setProperty('--my', Math.round(ly - r.top) + 'px');
+      });
+    }, { passive: true });
+  }
+
+  // The walkthrough preview on the landing view: one frame from the result step,
+  // and on hover the walkthrough itself plays inside it, from that step on.
+  const peekChapter = (demo) => demo.chapters.find((x) => /verdict|result|report/i.test(x.title)) || demo.chapters[Math.floor(demo.chapters.length / 2)];
   function drawPeek() {
     const demo = window.DepscanDemo, c = $('peekCanvas');
-    if (!demo || !demo.thumb || !c || !c.offsetWidth) return;
-    const ch = demo.chapters.find((x) => /verdict|result|report/i.test(x.title)) || demo.chapters[Math.floor(demo.chapters.length / 2)];
+    if (!demo || !demo.thumb || !c || !c.offsetWidth || peekLive.on) return;
+    const ch = peekChapter(demo);
     demo.thumb(c, ch.start + ch.dur * 0.9);
     const m = Math.round(demo.total);
     $('peekLen').textContent = demo.chapters.length + ' steps, ' + Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0');
+  }
+  const peekLive = { on: false, raf: 0, t0: 0 };
+  function peekFrame(now) {
+    const demo = window.DepscanDemo, c = $('peekCanvas');
+    if (!peekLive.on || !demo || !c.offsetWidth) { peekLive.raf = 0; return; }
+    const start = peekChapter(demo).start, span = demo.total - start;
+    demo.thumb(c, start + (((now - peekLive.t0) / 1000) * 1.4) % span);
+    peekLive.raf = requestAnimationFrame(peekFrame);
+  }
+  if (matchMedia('(hover: hover)').matches) {
+    $('peek').addEventListener('pointerenter', () => {
+      if (reduced() || !window.DepscanDemo || peekLive.on) return;
+      peekLive.on = true; peekLive.t0 = performance.now(); $('peek').classList.add('live');
+      if (!peekLive.raf) peekLive.raf = requestAnimationFrame(peekFrame);
+    });
+    $('peek').addEventListener('pointerleave', () => {
+      if (!peekLive.on) return;
+      peekLive.on = false; $('peek').classList.remove('live');
+      cancelAnimationFrame(peekLive.raf); peekLive.raf = 0;
+      drawPeek();
+    });
   }
   new ResizeObserver(() => drawPeek()).observe($('peekCanvas'));
 
@@ -802,6 +908,7 @@
   applyTheme(THEMES.includes(theme) ? theme : 'system');
   applyMotion(!document.documentElement.classList.contains('still'));
   DS.splitWords($('scanTitle'));
+  DS.watchEdges($('results')); DS.watchEdges($('historyRoot'));
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => moveNav(true));
 
   (async () => {

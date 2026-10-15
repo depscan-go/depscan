@@ -54,6 +54,7 @@
       <a href="#history" data-route="history"><span class="nl"><span>History</span><span class="alt" aria-hidden="true">History</span></span><span class="nav-n" id="navHist" hidden></span><small class="nav-sub">Every scan, kept in this browser</small></a>
       <a href="#policy" data-route="policy"><span class="nl"><span>Policy</span><span class="alt" aria-hidden="true">Policy</span></span><small class="nav-sub">The rules a scan applies</small></a>
       <a href="#how" data-route="how"><span class="nl"><span>Walkthrough</span><span class="alt" aria-hidden="true">Walkthrough</span></span><small class="nav-sub">Watch one scan, step by step</small></a>
+      <span class="nav-ind" id="navInd" aria-hidden="true"></span>
     </nav>
     <div class="bar-r">
       <div class="status-wrap">
@@ -74,6 +75,7 @@
       <button class="burger" id="menuBtn" type="button" aria-expanded="false" aria-controls="nav" aria-label="Menu"><i></i><i></i></button>
     </div>
   </div>
+  <i class="bar-prog" id="barProg" aria-hidden="true"></i>
 </header>
 
 <main id="main">
@@ -171,7 +173,7 @@
               </div>
             </div>
           </div>
-          <div class="capbar"><span class="planned off" id="planned">Planned</span><p class="cap" id="cap" aria-live="off"></p></div>
+          <div class="capbar"><span class="capnum" id="capNum" aria-hidden="true"></span><span class="planned off" id="planned">Planned</span><p class="cap" id="cap" aria-live="off"></p></div>
           <div class="transport" id="transport">
             <button class="tbtn tplay" id="tPlay" type="button" aria-label="Play">
               <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.2v11.6L13.5 8z" fill="currentColor"/></svg>

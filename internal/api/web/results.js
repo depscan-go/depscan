@@ -200,8 +200,12 @@
   }
   function daysTo(ymd) { return Math.floor((Date.parse(ymd + 'T23:59:59Z') - Date.now()) / 86400000); }
 
+  // Steps can be ticked off; this browser remembers them per scan (see planDone).
+  const stepKey = (s) => (s.p ? s.kind + ':' + s.p.key : s.kind);
   function stepHTML(s, i) {
-    const n = '<span class="step-n">' + String(i + 1).padStart(2, '0') + '</span>';
+    const key = stepKey(s), done = !!(cur && cur.done && cur.done.has(key));
+    const n = '<button class="step-n step-tick" type="button" data-step="' + esc(key) + '" aria-pressed="' + done + '" aria-label="Step ' + (i + 1) + ' done" title="Tick off when done"><span class="sn">' + String(i + 1).padStart(2, '0') + '</span>' + icon.check + '</button>';
+    const li = (cls) => '<li class="step ' + cls + (done ? ' done' : '') + '" data-key="' + esc(key) + '">';
     if (s.kind === 'block' || s.kind === 'warn') {
       const p = s.p, d = p.dep;
       let title, act = '', meta = sevChips(p.pool);
@@ -217,20 +221,91 @@
         meta += '<span class="small">Replace it, or add a time-limited exception with a reason</span>';
       }
       act += '<button class="btn btn-sm" type="button" data-open-pkg="' + esc(p.key) + '">Details</button>';
-      return '<li class="step ' + s.kind + '">' + n + '<div class="step-main"><p class="step-title">' + title + '</p><div class="step-meta">' + statusChip(p.status) + meta + '</div></div><div class="step-act">' + act + '</div></li>';
+      return li(s.kind) + n + '<div class="step-main"><p class="step-title">' + title + '</p><div class="step-meta">' + statusChip(p.status) + meta + '</div></div><div class="step-act">' + act + '</div></li>';
     }
     if (s.kind === 'lic-block') {
       const p = s.p;
       const what = p.lic.status === 'denied' ? 'uses <span class="mono">' + esc(p.lic.expr) + '</span>, which your policy denies' : 'has an unknown license, and your policy blocks unknown licenses';
-      return '<li class="step block">' + n + '<div class="step-main"><p class="step-title"><span class="mono">' + esc(p.dep.Name) + '</span> ' + what + '</p><div class="step-meta">' + chip('Blocks', 'critical') + '<span class="small">Replace or remove it, or change the license rule in policy.yaml</span></div></div><div class="step-act"><button class="btn btn-sm" type="button" data-review="' + esc(p.key) + '">Review</button></div></li>';
+      return li('block') + n + '<div class="step-main"><p class="step-title"><span class="mono">' + esc(p.dep.Name) + '</span> ' + what + '</p><div class="step-meta">' + chip('Blocks', 'critical') + '<span class="small">Replace or remove it, or change the license rule in policy.yaml</span></div></div><div class="step-act"><button class="btn btn-sm" type="button" data-review="' + esc(p.key) + '">Review</button></div></li>';
     }
     if (s.kind === 'lic-review') {
-      return '<li class="step lic">' + n + '<div class="step-main"><p class="step-title">Review ' + plural(s.n, 'license') + ' deps.dev could not identify</p><div class="step-meta">' + chip('Warns', 'medium') + '<span class="small">' + (s.done ? s.done + ' of ' + s.n + ' reviewed' : 'Find each real license and record a decision') + '</span></div></div><div class="step-act"><button class="btn btn-sm" type="button" data-tab-go="licenses">Open licenses</button></div></li>';
+      return li('lic') + n + '<div class="step-main"><p class="step-title">Review ' + plural(s.n, 'license') + ' deps.dev could not identify</p><div class="step-meta">' + chip('Warns', 'medium') + '<span class="small">' + (s.done ? s.done + ' of ' + s.n + ' reviewed' : 'Find each real license and record a decision') + '</span></div></div><div class="step-act"><button class="btn btn-sm" type="button" data-tab-go="licenses">Open licenses</button></div></li>';
     }
     if (s.kind === 'exc') {
-      return '<li class="step lic">' + n + '<div class="step-main"><p class="step-title">' + plural(s.list.length, 'exception') + ' in your policy ' + (s.list.length === 1 ? 'expires' : 'expire') + ' within 30 days</p><div class="step-meta"><span class="small">' + s.list.map((e) => '<span class="mono">' + esc(e.id) + '</span> on ' + esc(e.expires)).join(', ') + '. Re-check them, then extend or remove the entries.</span></div></div><div class="step-act"><a class="btn btn-sm" href="#policy">Open policy</a></div></li>';
+      return li('lic') + n + '<div class="step-main"><p class="step-title">' + plural(s.list.length, 'exception') + ' in your policy ' + (s.list.length === 1 ? 'expires' : 'expire') + ' within 30 days</p><div class="step-meta"><span class="small">' + s.list.map((e) => '<span class="mono">' + esc(e.id) + '</span> on ' + esc(e.expires)).join(', ') + '. Re-check them, then extend or remove the entries.</span></div></div><div class="step-act"><a class="btn btn-sm" href="#policy">Open policy</a></div></li>';
     }
     return '';
+  }
+
+  // Ticked-off plan steps, per scan, in this browser only. The newest 40 scans are kept.
+  const PLAN_KEY = 'depscan.plan';
+  function planDone(id) {
+    try { const all = JSON.parse(localStorage.getItem(PLAN_KEY) || '{}'); return new Set((all[id] && all[id].k) || []); }
+    catch (e) { return new Set(); }
+  }
+  function savePlanDone(id, set) {
+    try {
+      const all = JSON.parse(localStorage.getItem(PLAN_KEY) || '{}');
+      if (set.size) all[id] = { k: Array.from(set), at: Date.now() }; else delete all[id];
+      Object.keys(all).sort((a, b) => all[b].at - all[a].at).slice(40).forEach((x) => delete all[x]);
+      localStorage.setItem(PLAN_KEY, JSON.stringify(all));
+    } catch (e) { /* storage blocked: ticks last until the page closes */ }
+  }
+  function planProg(steps) {
+    const n = steps.filter((s) => cur.done.has(stepKey(s))).length;
+    return { n, pp: steps.length ? (n / steps.length).toFixed(3) : '0', text: n ? '<b>' + n + ' of ' + steps.length + '</b> done' + (n === steps.length ? '. Scan again to confirm.' : '') : 'Tick a step off when it is done; this browser remembers.' };
+  }
+  function planProgHTML(steps) {
+    const g = planProg(steps);
+    return '<i class="' + (g.n ? '' : 'off') + '" style="--pp:' + g.pp + '" aria-hidden="true"></i><span>' + g.text + '</span>';
+  }
+  function toggleStep(btn) {
+    const key = btn.dataset.step, li = btn.closest('.step');
+    if (cur.done.has(key)) cur.done.delete(key); else cur.done.add(key);
+    const on = cur.done.has(key);
+    btn.setAttribute('aria-pressed', String(on));
+    if (li) li.classList.toggle('done', on);
+    savePlanDone(cur.entry.id, cur.done);
+    const pp = $('planProg');
+    if (pp) { const g = planProg(planSteps(cur.m, cur.reviews)), bar = pp.querySelector('i'); bar.classList.toggle('off', !g.n); bar.style.setProperty('--pp', g.pp); pp.querySelector('span').innerHTML = g.text; }
+  }
+
+  // A pull request scan whose CycloneDX report the server anchored on Solana (DEPSCAN_ANCHOR=solana).
+  const ICON_LINK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.7 9.3a2.6 2.6 0 0 0 3.7 0l2.1-2.1a2.6 2.6 0 0 0-3.7-3.7l-.8.8M9.3 6.7a2.6 2.6 0 0 0-3.7 0L3.5 8.8a2.6 2.6 0 0 0 3.7 3.7l.8-.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+  function anchorHTML(entry) {
+    const rp = entry.record && entry.record.report;
+    if (!rp) return '';
+    const a = rp.anchor;
+    if (a && a.tx_id) {
+      const how = 'The SHA-256 of this scan\'s CycloneDX report is in a Solana memo. Check any copy with: depscan verify' + (a.signer ? ' -signer ' + a.signer : '') + ' report.cdx.json';
+      return '<span class="anc" title="' + esc(how) + '">' + ICON_LINK + '<span>Anchored on Solana ' + esc(a.network || '') + '</span>' +
+        (/^https:\/\//.test(a.url || '') ? ext(a.url, 'tx ' + esc(a.tx_id.slice(0, 8)) + '…', 'xlink mono') : '<span class="mono">' + esc(a.tx_id.slice(0, 8)) + '…</span>') + '</span>' +
+        '<span><button class="xlink rep-dl" type="button" data-report="' + esc(entry.id) + '">' + icon.download + 'Report</button></span>';
+    }
+    if (rp.anchor_error) return '<span class="anc bad" title="' + esc(rp.anchor_error) + '">Report not anchored</span>';
+    return '';
+  }
+  async function downloadReport(id) {
+    try {
+      const res = await fetch('/scans/' + encodeURIComponent(id) + '/report', { cache: 'no-store' });
+      if (!res.ok) throw new Error(String(res.status));
+      download('report-' + slug(cur && cur.entry ? cur.entry.label : id) + '.cdx.json', await res.blob());
+      toast('Report downloaded. Check it any time with depscan verify.');
+    } catch (e) {
+      toast('The server no longer has this report: it keeps reports until it restarts. The anchor is still on the ledger.', 'bad');
+    }
+  }
+  // Scans copied before the server finished anchoring: ask once more, quietly.
+  async function refreshAnchor(entry) {
+    try {
+      const res = await fetch('/scans/' + encodeURIComponent(entry.id), { cache: 'no-store' });
+      if (!res.ok) return;
+      const rec = await res.json();
+      if (!rec || !rec.report || !cur || cur.entry !== entry) return;
+      entry.record.report = rec.report;
+      DS.store.putScan(entry);
+      const slot = $('ancSlot'); if (slot) slot.outerHTML = anchorHTML(entry);
+    } catch (e) { /* offline: nothing to add */ }
   }
 
   /* ================================================================ render */
@@ -240,7 +315,7 @@
     if (cur && cur.sky) cur.sky.destroy();
     const m = build(entry.record, ctx.policy);
     const reviews = ctx.reviews || new Map();
-    cur = { root, entry, m, ctx, reviews, tab: 'fixes', ui: { q: '', filter: 'all', sort: 'risk', shown: {}, open: new Set(), depQ: '', depScope: 'all', depEco: 'all', depStatus: 'any', depSort: ['status', 1], depShown: 100 } };
+    cur = { root, entry, m, ctx, reviews, done: planDone(entry.id), tab: 'fixes', ui: { q: '', filter: 'all', sort: 'risk', shown: {}, open: new Set(), depQ: '', depScope: 'all', depEco: 'all', depStatus: 'any', depSort: ['status', 1], depShown: 100 } };
     const v = VERDICT[m.verdict], src = entry.source || {};
     const steps = planSteps(m, reviews);
     const dig = m.policy && m.policy.digest ? m.policy.digest.slice(0, 7) : '';
@@ -252,7 +327,8 @@
       '<div><p class="eyebrow verdict-state"><span class="dot"></span>' + v.state + '</p>' +
       '<h2 class="verdict-word" data-split>' + v.word + '</h2>' +
       '<p class="verdict-why">' + verdictWhy(m) + '</p>' +
-      '<div class="verdict-meta"><span>' + srcIcon + '<span><b>' + esc(entry.label) + '</b>, ' + srcText + '</span></span><span>Scanned ' + esc(when(entry.at)) + '</span>' + (entry.ms ? '<span>Took ' + fmtMs(entry.ms) + '</span>' : '') + (dig ? '<span>Policy <a class="xlink mono" href="#policy">' + dig + '</a></span>' : '') + '</div></div>' +
+      '<div class="verdict-meta"><span>' + srcIcon + '<span><b>' + esc(entry.label) + '</b>, ' + srcText + '</span></span><span>Scanned ' + esc(when(entry.at)) + '</span>' + (entry.ms ? '<span>Took ' + fmtMs(entry.ms) + '</span>' : '') + (dig ? '<span>Policy <a class="xlink mono" href="#policy">' + dig + '</a></span>' : '') +
+      (anchorHTML(entry) || (src.kind === 'pr' ? '<span id="ancSlot" hidden></span>' : '')) + '</div></div>' +
       '<div class="verdict-actions"><button class="btn" type="button" id="rescanBtn">' + icon.redo + 'Scan again</button>' +
       '<div class="menu-wrap"><button class="btn btn-primary" type="button" id="exportBtn" aria-expanded="false">' + icon.download + 'Export</button></div></div>' +
       '</div>';
@@ -268,7 +344,7 @@
         '</dl>';
 
       if (steps.length) {
-        h += '<section aria-labelledby="planTitle" data-ch="Plan"><div class="sec-head"><div><p class="eyebrow"><span class="ey-dot" aria-hidden="true"></span>' + plural(steps.length, 'step') + ', ' + (steps[0].kind === 'block' || steps[0].kind === 'lic-block' ? 'blocking problems first' : steps[0].kind === 'warn' ? 'warnings first' : 'reviews to finish') + '</p><h2 id="planTitle">What to do, in order</h2><p>Blocking problems first, then warnings, then reviews. Each step says what it fixes; run the command, then scan again.</p></div>' +
+        h += '<section aria-labelledby="planTitle" data-ch="Plan"><div class="sec-head"><div><p class="eyebrow"><span class="ey-dot" aria-hidden="true"></span>' + plural(steps.length, 'step') + ', ' + (steps[0].kind === 'block' || steps[0].kind === 'lic-block' ? 'blocking problems first' : steps[0].kind === 'warn' ? 'warnings first' : 'reviews to finish') + '</p><h2 id="planTitle">What to do, in order</h2><p>Blocking problems first, then warnings, then reviews. Each step says what it fixes; run the command, then scan again.</p><p class="plan-prog" id="planProg">' + planProgHTML(steps) + '</p></div>' +
           (steps.some((s) => (s.kind === 'block' || s.kind === 'warn') && s.p.fixTo) ? '<button class="btn btn-sm" type="button" id="copyAll">' + icon.copy + 'Copy all upgrade commands</button>' : '') + '</div>' +
           '<ol class="plan" id="plan">' + steps.slice(0, 6).map(stepHTML).join('') + '</ol>' +
           (steps.length > 6 ? '<button class="btn btn-sm plan-more" type="button" id="planMore">Show ' + (steps.length - 6) + ' more steps</button>' : '') + '</section>';
@@ -291,6 +367,12 @@
     DS.splitWords(root.querySelector('.verdict-word'));
     countUp(root);
     wire(root);
+    // The parts below the verdict settle in as they come into view; the hairlines above them are traced once.
+    DS.reveal(root.querySelectorAll('.stats, .plan'), { line: true, rise: false });
+    DS.reveal(root.querySelectorAll('.stat'), { offset: 1 });
+    DS.reveal(root.querySelectorAll('#plan > .step'), { offset: 1 });
+    DS.reveal(root.querySelectorAll('.overview .sec-head, .overview-in > *, [data-ch="Details"] > .sec-head, #tabs'));
+    if (src.kind === 'pr' && !(entry.record && entry.record.report)) refreshAnchor(entry);
 
     if (m.verdict !== 'empty') {
       startSky(m);
@@ -329,10 +411,12 @@
     const rb = $('rescanBtn'); if (rb) rb.onclick = () => cur.ctx.onRescan && cur.ctx.onRescan(cur.entry);
     const eb = $('exportBtn'); if (eb) eb.onclick = (e) => { e.stopPropagation(); toggleExport(eb); };
     const ca = $('copyAll'); if (ca) ca.onclick = () => DS.copy(allCommands(cur.m), 'Copied every upgrade command');
-    const pm = $('planMore'); if (pm) pm.onclick = () => { const steps = planSteps(cur.m, cur.reviews); $('plan').innerHTML = steps.map(stepHTML).join(''); pm.remove(); };
+    const pm = $('planMore'); if (pm) pm.onclick = () => { const steps = planSteps(cur.m, cur.reviews); $('plan').innerHTML = steps.map(stepHTML).join(''); pm.remove(); DS.reveal(Array.from($('plan').children).slice(6)); };
     const tabs = $('tabs'); if (tabs) tabs.onclick = (e) => { const b = e.target.closest('.tab'); if (b) setTab(b.dataset.tab); };
   }
   function onClick(e) {
+    const st = e.target.closest('[data-step]'); if (st) { toggleStep(st); return; }
+    const dl = e.target.closest('[data-report]'); if (dl) { downloadReport(dl.dataset.report); return; }
     const op = e.target.closest('[data-open-pkg]'); if (op) { openPkg(op.dataset.openPkg); return; }
     const rv = e.target.closest('[data-review]'); if (rv) { openReview(rv.dataset.review); return; }
     const tg = e.target.closest('[data-tab-go]'); if (tg) { setTab(tg.dataset.tabGo); $('tabs').scrollIntoView({ behavior: DS.reduced() ? 'auto' : 'smooth', block: 'start' }); }
@@ -355,12 +439,17 @@
   /* ---------------- tabs ---------------- */
   function setTab(id) {
     if (!cur || !$('tabs')) return;
-    cur.tab = id;
+    const order = Array.from(document.querySelectorAll('#tabs .tab')).map((b) => b.dataset.tab);
+    const from = order.indexOf(cur.shownTab), to = order.indexOf(id);
+    cur.tab = id; cur.shownTab = id;
     document.querySelectorAll('#tabs .tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === id)));
     moveTabBar();
     const panel = $('panel');
+    // The panel slides in from the side of the tab you moved to.
+    panel.style.setProperty('--dir', from < 0 || from === to ? '0' : to > from ? '1' : '-1');
     panel.classList.remove('panel'); void panel.offsetWidth; panel.classList.add('panel');
     if (id === 'licenses') renderLicenses(); else if (id === 'deps') renderDeps(); else if (id === 'changes') renderChanges(); else renderFixes();
+    DS.edges(cur.root);
   }
   function moveTabBar() {
     const a = document.querySelector('#tabs .tab[aria-selected="true"]'), bar = $('tabBar');
