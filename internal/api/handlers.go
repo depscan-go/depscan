@@ -53,6 +53,9 @@ type Handler struct {
 
 	pruneMu   sync.Mutex
 	lastPrune time.Time
+
+	// uploads holds one slot per upload being scanned; see maxUploadsAtOnce.
+	uploads chan struct{}
 }
 
 func New(engine *scan.Engine, scanRoot string) (*Handler, error) {
@@ -68,6 +71,7 @@ func New(engine *scan.Engine, scanRoot string) (*Handler, error) {
 		engine:   engine,
 		scanRoot: root,
 		Scans:    store.NewMemory(store.MemoryLimits),
+		uploads:  make(chan struct{}, maxUploadsAtOnce),
 	}, nil
 }
 
