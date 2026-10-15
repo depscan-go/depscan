@@ -35,9 +35,36 @@ reported as a pass with missing data.
 
 ## Quick start
 
-You need Go 1.26 or newer.
+### Try it online
 
-### Dashboard
+Open https://depscan-server.thankfulbeach-61661ef7.malaysiawest.azurecontainerapps.io
+and choose a project folder. Only its `go.mod` and `package-lock.json` files
+are sent, and a scan's link keeps working for 30 days. The site sleeps when
+nobody uses it, so the first visit can take a few seconds.
+
+### Command line
+
+Download the binary for your system from
+[Releases](https://github.com/depscan-go/depscan/releases); each archive comes
+with the default `policy.yaml`. Or install it with Go 1.27 or newer and take
+`policy.yaml` from this repo:
+
+```bash
+go install github.com/depscan-go/depscan/cmd/depscan@latest
+depscan -path ./my-project -policy policy.yaml
+```
+
+From a clone, `go run ./cmd/depscan` works the same way.
+
+| Exit status | Meaning |
+| --- | --- |
+| 0 | No violations (warnings are allowed) |
+| 1 | At least one violation: fail the build |
+| 2 | The scan could not run (bad policy, unreadable folder, OSV.dev down) |
+
+### Your own dashboard
+
+From a clone, with Go 1.27 or newer:
 
 ```bash
 make run-server          # go run ./cmd/server --policy=./policy.yaml
@@ -50,18 +77,6 @@ your computer. Results, history and license reviews stay in your browser.
 Scanning by typed path only works inside the server's scan root
 (`-scan-root`, your home folder by default); choosing a folder works for any
 folder on any drive.
-
-### Command line
-
-```bash
-go run ./cmd/depscan -path ./my-project -policy policy.yaml
-```
-
-| Exit status | Meaning |
-| --- | --- |
-| 0 | No violations (warnings are allowed) |
-| 1 | At least one violation: fail the build |
-| 2 | The scan could not run (bad policy, unreadable folder, OSV.dev down) |
 
 ## Policy
 
